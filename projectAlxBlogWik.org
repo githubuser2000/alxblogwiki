@@ -1,0 +1,343 @@
+#+TITLE: Erklärung des C++ CGI-Dokumentenviewers
+#+AUTHOR: Alexander Kern
+#+OPTIONS: toc:t num:t
+#+STARTUP: overview
+
+* Überblick
+
+Dieses Programm ist ein *CGI-Programm in C++*, das als reiner
+*Read-only-Dokumentenviewer* fungiert.
+
+Es erfüllt folgende Aufgaben:
+
+- Listet Dateien aus einem festen Dokumentenverzeichnis
+- Rendert genau *eine* Datei im Vollbild
+- Unterstützte Typen:
+  - =.md=, =.org= → Pandoc → HTML
+  - =.csv= → HTML-Tabelle
+  - =.txt=, =.tx= → vorformatierter Text
+- Keine Bearbeitung
+- Kein JavaScript
+- Keine Templates
+- Keine Navigation außer „zurück“
+
+Ziel: *maximale Einfachheit, minimale Angriffsfläche*.
+
+---
+
+* config.h – Zentrale Konfiguration
+
+#+BEGIN_SRC cpp
+inline const fs::path DOCROOT{"/var/www/docs"};
+#+END_SRC
+
+**Zweck**
+
+- Eine zentrale Quelle der Wahrheit für das Dokumentenverzeichnis
+- Kein Hardcoding in mehreren Dateien
+- Leicht änderbar
+
+**Warum =inline=?**
+
+- Header-definierte Variable
+- Verhindert Mehrfachdefinitionen (C++17+)
+- Kein separates =.cpp= nötig
+
+---
+
+* html.h / html.cpp – HTML-Basics und Sicherheit
+
+**html_escape**
+
+#+BEGIN_SRC cpp
+std::string html_escape(const std::string& s);
+#+END_SRC
+
+**Aufgabe**
+
+- Verhindert Cross-Site-Scripting (XSS)
+- Jede Datei ist *untrusted input*
+
+Ersetzte Zeichen:
+
+| Zeichen | Ersetzung |
+|--------|-----------|
+| &      | &amp;     |
+| <      | &lt;      |
+| >      | &gt;      |
+| "      | &quot;    |
+
+Selbst Text-Fallbacks bleiben dadurch sicher.
+
+---
+
+**print_http_headers**
+
+#+BEGIN_SRC cpp
+Content-Type: text/html
+X-Content-Type-Options: nosniff
+Content-Security-Policy: default-src 'none'
+#+END_SRC
+
+**Bedeutung der Header**
+
+| Header | Wirkung |
+|-------|--------|
+| Content-Type | Korrekte CGI-Antwort |
+| nosniff | Browser darf MIME nicht erraten |
+| CSP | Kein JS, keine externen Ressourcen |
+| Referrer-Policy | Keine Datenlecks |
+
+Das ist absichtlich restriktiv.
+
+---
+
+* query.h / query.cpp – Eingabekontrolle
+
+#+BEGIN_SRC cpp
+std::string query_file();
+#+END_SRC
+
+Liest die CGI-Variable:
+
+#+BEGIN_EXAMPLE
+QUERY_STRING=file=example.md
+#+END_EXAMPLE
+
+**Sicherheitsregeln**
+
+#+BEGIN_SRC cpp
+if (v.find("..") != npos) return {};
+if (v.find('/')  != npos) return {};
+#+END_SRC
+
+**Warum so streng?**
+
+- Verhindert Path Traversal (=../etc/passwd=)
+- Verhindert absolute Pfade
+- Verhindert Encoding-Tricks
+
+Ansatz: *Whitelist statt Blacklist*  
+→ Nur einfache Dateinamen sind erlaubt.
+
+---
+
+* listview.cpp – Index-Ansicht
+
+#+BEGIN_SRC cpp
+render_list_view();
+#+END_SRC
+
+**Ablauf**
+
+1. Iteration über =DOCROOT=
+2. Filter:
+   - reguläre Dateien
+   - keine Symlinks
+   - erlaubte Endungen
+3. Sortieren
+4. HTML-Liste erzeugen
+
+#+BEGIN_EXAMPLE
+<li><a href="?file=foo.md">foo.md</a></li>
+#+END_EXAMPLE
+
+**Bewusste Einschränkungen**
+
+- Keine Unterverzeichnisse
+- Kein Dateibaum
+- Keine Metadaten
+- Nur Dateinamen
+
+Minimalismus ist hier ein Sicherheitsfeature.
+
+---
+
+* renderer.cpp – Text und Pandoc
+
+**render_text_file**
+
+#+BEGIN_SRC cpp
+<pre>escaped text</pre>
+#+END_SRC
+
+- Zeilenweise Ausgabe
+- Kein HTML-Parsing
+- Keine Interpretation
+
+Langweilig, aber sicher.
+
+---
+
+**render_markdown_or_org**
+
+#+BEGIN_SRC sh
+pandoc --standalone --from=markdown|org --to=html5
+#+END_SRC
+
+**Technik**
+
+- fork()
+- execvp()
+- pipe() → stdout → Browser
+
+**Warum kein system()/popen()?**
+
+- Kein Shell-Parsing
+- Kein Injection-Vektor
+- Kontrollierter Prozessstart
+
+Pandoc ist der *einzige externe Code*, der läuft.
+
+---
+
+* csv.cpp – CSV-Rendering
+
+**CSV-Parser**
+
+#+BEGIN_SRC cpp
+parse_csv_line(line, sep)
+#+END_SRC
+
+Unterstützt:
+
+- Komma oder Semikolon
+- Quotes: ="a;b"=
+- Escaped Quotes: =""=
+
+Kein Regex, keine Heuristik – deterministisch.
+
+---
+
+**HTML-Ausgabe**
+
+#+BEGIN_SRC html
+<table>
+  <tr><th>Header</th></tr>
+  <tr><td>Cell</td></tr>
+</table>
+#+END_SRC
+
+Eigenschaften:
+
+- Erste Zeile = Header
+- Monospace-Schrift
+- Volle Breite
+- Kein JavaScript
+
+CSV ist *reiner View*, kein Spreadsheet.
+
+---
+
+* main.cpp – Orchestrierung
+
+**HTTP-Start**
+
+#+BEGIN_SRC cpp
+print_http_headers();
+#+END_SRC
+
+Muss immer zuerst kommen, sonst CGI-Fehler.
+
+---
+
+**Query-Auswertung**
+
+#+BEGIN_SRC cpp
+std::string file = query_file();
+#+END_SRC
+
+- leer → Listenansicht
+- gesetzt → Dateiansicht
+
+---
+
+**LIST VIEW**
+
+#+BEGIN_SRC cpp
+if (file.empty()) {
+    render_list_view();
+    return 0;
+}
+#+END_SRC
+
+Early return → kein verschachtelter Code.
+
+---
+
+**FILE VIEW – Validierung**
+
+#+BEGIN_SRC cpp
+if (!exists || !regular || symlink)
+#+END_SRC
+
+Warum keine Symlinks?
+
+- Symlinks erlauben Ausbruch aus =DOCROOT=
+
+---
+
+**HTML-Rahmen**
+
+#+BEGIN_SRC html
+<!DOCTYPE html>
+<a href="?">← zurück</a>
+#+END_SRC
+
+- Einheitliches Layout
+- Kein Template-System
+- Keine Wiederholung
+
+---
+
+**Dispatch nach Dateityp**
+
+#+BEGIN_SRC cpp
+md/org → pandoc
+csv    → table
+txt    → pre
+#+END_SRC
+
+Das ist der Kern des Programms.
+
+Bewusst keine Klassenhierarchie, kein Plugin-System –
+Lesbarkeit schlägt Abstraktion.
+
+---
+
+* std::filesystem – Linker-Realität
+
+Manche Toolchains benötigen explizit:
+
+#+BEGIN_SRC cmake
+target_link_libraries(docview stdc++fs)
+#+END_SRC
+
+Kein Bug, sondern Toolchain-Eigenheit.
+
+---
+
+* Gesamteigenschaften
+
+- Kein State
+- Keine Sessions
+- Kein Upload
+- Kein JavaScript
+- Kein externes CSS
+- Keine Templates
+- Auditierbar
+- Diff-freundlich
+- CGI-tauglich
+- Gut sandboxbar
+
+---
+
+* Zusammenfassung
+
+Dieses Programm ist ein:
+
+#+BEGIN_QUOTE
+Hart abgesicherter, deterministischer C++-CGI-Viewer, der nur Dateien rendert,
+nichts interpretiert, keine unnötige Angriffsfläche bietet und genau so
+komplex ist wie nötig – nicht mehr.
+#+END_QUOTE
