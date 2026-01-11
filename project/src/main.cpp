@@ -4,13 +4,16 @@
 #include "renderer.h"
 #include "csv.h"
 #include "listview.h"
+#include "media_view.h"
 
 #include <filesystem>
 #include <iostream>
+#include <algorithm>
 
 namespace fs = std::filesystem;
 
-int main() {
+int main()
+{
     /* ---- HTTP + Security Headers ---- */
     print_http_headers();
 
@@ -22,17 +25,29 @@ int main() {
         return 0;
     }
 
-    /* ================= FILE VIEW ================= */
+    /* ================= FILE CHECK ================= */
     fs::path p = DOCROOT / file;
-
     if (!fs::exists(p) || !fs::is_regular_file(p) || fs::is_symlink(p)) {
         std::cout << "<h1>404</h1>";
         return 0;
     }
 
     std::string ext = p.extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+                   [](unsigned char c){ return std::tolower(c); });
 
-    /* ---- HTML wrapper ---- */
+    /* ================= MEDIA (FULLSCREEN) ================= */
+    if (ext == ".mp4") {
+        render_mp4_fullscreen(file);
+        return 0;
+    }
+
+    if (ext == ".pdf") {
+        render_pdf_fullscreen(file);
+        return 0;
+    }
+
+    /* ================= HTML WRAPPER ================= */
     std::cout
         << "<!DOCTYPE html><html><head><meta charset='utf-8'>"
         << "<title>" << html_escape(file) << "</title>"
@@ -42,23 +57,18 @@ int main() {
         << "</style></head><body>"
         << "<a href='?'>← zurück</a>";
 
-    /* ---- Dispatch by extension ---- */
+    /* ================= DISPATCH ================= */
     if (ext == ".md" || ext == ".org") {
-
-        if (!render_markdown_or_org(p)) {
+        if (!render_markdown_or_org(p))
             render_text_file(p);
-        }
-
-    } else if (ext == ".csv") {
-
+    }
+    else if (ext == ".csv") {
         render_csv_fullscreen(p);
-
-    } else if (ext == ".txt" || ext == ".tx") {
-
+    }
+    else if (ext == ".txt" || ext == ".tx") {
         render_text_file(p);
-
-    } else {
-
+    }
+    else {
         std::cout << "<h1>Invalid file</h1>";
     }
 

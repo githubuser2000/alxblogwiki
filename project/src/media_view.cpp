@@ -1,0 +1,54 @@
+#include "media_view.h"
+#include "html.h"
+#include <iostream>
+#include <string>
+
+void render_video_view(const std::string& file)
+{
+    std::cout
+        << "Content-Type: text/html; charset=utf-8\r\n\r\n"
+        "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+        "<title>Video</title>"
+        "<style>"
+        "html,body{margin:0;height:100%;background:black}"
+        "video{width:100%;height:100%;object-fit:contain}"
+        "</style></head><body>"
+        "<video controls autoplay playsinline>"
+        "<source src='/docs/" << html_escape(file)
+        << "' type='video/mp4'>"
+        "</video></body></html>";
+}
+
+void render_pdf_view(const std::string& file)
+{
+    std::cout
+        << "Content-Type: text/html; charset=utf-8\r\n\r\n"
+        "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+        "<title>PDF</title>"
+        "<style>"
+        "html,body{margin:0;height:100%}"
+        "iframe{border:0;width:100%;height:100%}"
+        "</style></head><body>"
+        "<iframe src='/docs/" << html_escape(file)
+        << "' allowfullscreen></iframe>"
+        << "</body></html>";
+}
+
+void render_text_view(const std::string& file)
+{
+    std::cout
+        << "Content-Type: text/html; charset=utf-8\r\n\r\n"
+        "<pre>Dateiformat nicht unterstützt: "
+        << html_escape(file) << "</pre>";
+}
+
+void render_error(const std::string& msg)
+{
+    std::cout
+        << "Content-Type: text/html; charset=utf-8\r\n\r\n"
+        "<h1>Error</h1><p>" << html_escape(msg) << "</p>";
+}
+
+// Für main.cpp
+void render_mp4_fullscreen(const std::string& file) { render_video_view(file); }
+void render_pdf_fullscreen(const std::string& file) { render_pdf_view(file); }
