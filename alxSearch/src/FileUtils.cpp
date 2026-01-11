@@ -11,7 +11,7 @@ bool isTextFile(const std::string& filepath) {
     if(!file) return false;
     char c;
     while(file.get(c)) {
-        if (c == '\0') return false; // einfache Binärprüfung
+        if(c == '\0') return false;
     }
     return true;
 }

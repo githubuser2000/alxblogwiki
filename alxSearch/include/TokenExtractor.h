@@ -15,7 +15,10 @@ public:
     TokenExtractor();
     void processFile(const std::string& filepath);
     void writeCSV(const std::string& csvfile) const;
+
 private:
     std::unordered_map<std::string, int> global_count;
     std::vector<TokenInfo> csv_rows;
+
+    std::vector<std::string> extractTokens(const std::string& line) const;
 };
