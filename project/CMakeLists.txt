@@ -24,5 +24,4 @@ add_executable(docs.cgi
     src/fileview.cpp
 )
 
-# GCC 8 braucht das evtl. noch
-target_link_libraries(docs.cgi stdc++fs)
+target_link_libraries(docs.cgi stdc++)

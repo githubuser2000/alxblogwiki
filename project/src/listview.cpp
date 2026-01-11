@@ -15,7 +15,18 @@
 namespace fs = std::filesystem;
 
 /* ------------------------------------------------------------
-   Hilfsfunktion: Datei raw ausliefern (PDF / MP4 / Text)
+   Hilfsfunktion: Extension normalisieren
+------------------------------------------------------------ */
+static std::string lower_ext(const std::string& filename)
+{
+    std::string ext = fs::path(filename).extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+                   [](unsigned char c){ return std::tolower(c); });
+    return ext;
+}
+
+/* ------------------------------------------------------------
+   RAW-Datei ausliefern (PDF / MP4 / Text / etc.)
 ------------------------------------------------------------ */
 static void send_file(const std::string& filename)
 {
@@ -29,9 +40,7 @@ static void send_file(const std::string& filename)
         return;
     }
 
-    std::string ext = path.extension().string();
-    std::transform(ext.begin(), ext.end(), ext.begin(),
-                   [](unsigned char c){ return std::tolower(c); });
+    std::string ext = lower_ext(filename);
 
     std::string mime = "application/octet-stream";
     if (ext == ".pdf") mime = "application/pdf";
@@ -50,16 +59,72 @@ static void send_file(const std::string& filename)
 }
 
 /* ------------------------------------------------------------
+   MP4 Vollbild-HTML
+------------------------------------------------------------ */
+static void render_mp4_fullscreen(const std::string& filename)
+{
+    std::cout
+        << "Content-Type: text/html; charset=utf-8\r\n\r\n"
+        << "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+        << "<meta name='viewport' content='width=device-width,height=device-height,initial-scale=1.0'>"
+        << "<title>Video</title>"
+        << "<style>"
+        << "html,body{margin:0;width:100%;height:100%;background:black;overflow:hidden}"
+        << "video{width:100%;height:100%;object-fit:contain}"
+        << "</style></head><body>"
+        << "<video controls autoplay muted playsinline>"
+        << "<source src='?raw=" << html_escape(filename) << "' type='video/mp4'>"
+        << "</video></body></html>";
+}
+
+/* ------------------------------------------------------------
+   PDF Vollbild-HTML
+------------------------------------------------------------ */
+static void render_pdf_fullscreen(const std::string& filename)
+{
+    std::cout
+        << "Content-Type: text/html; charset=utf-8\r\n\r\n"
+        << "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+        << "<meta name='viewport' content='width=device-width,height=device-height,initial-scale=1.0'>"
+        << "<title>PDF</title>"
+        << "<style>"
+        << "html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#111}"
+        << "iframe{width:100%;height:100%;border:0}"
+        << "</style></head><body>"
+        << "<iframe src='?raw=" << html_escape(filename) << "'></iframe>"
+        << "</body></html>";
+}
+
+/* ------------------------------------------------------------
    Hauptfunktion
 ------------------------------------------------------------ */
 void render_list_view()
 {
     /* ---------- QUERY_STRING auswerten ---------- */
     const char* qs = std::getenv("QUERY_STRING");
-    if (qs && std::string(qs).rfind("file=", 0) == 0) {
-        std::string filename = std::string(qs + 5);
-        send_file(filename);
-        return;
+    if (qs) {
+        std::string q(qs);
+
+        /* RAW-Auslieferung */
+        if (q.rfind("raw=", 0) == 0) {
+            send_file(q.substr(4));
+            return;
+        }
+
+        /* Öffnen (HTML-View oder RAW je nach Typ) */
+        if (q.rfind("open=", 0) == 0) {
+            std::string filename = q.substr(5);
+            std::string ext = lower_ext(filename);
+
+            if (ext == ".mp4")
+                render_mp4_fullscreen(filename);
+            else if (ext == ".pdf")
+                render_pdf_fullscreen(filename);
+            else
+                send_file(filename);
+
+            return;
+        }
     }
 
     /* ---------- Dateiliste erzeugen ---------- */
@@ -79,10 +144,7 @@ void render_list_view()
         if (ec) break;
         if (!e.is_regular_file(ec)) continue;
 
-        std::string ext = e.path().extension().string();
-        std::transform(ext.begin(), ext.end(), ext.begin(),
-                       [](unsigned char c){ return std::tolower(c); });
-
+        std::string ext = lower_ext(e.path().filename().string());
         if (allowed_ext.find(ext) == allowed_ext.end())
             continue;
 
@@ -94,7 +156,7 @@ void render_list_view()
     std::mt19937 rng(rd());
     std::shuffle(files.begin(), files.end(), rng);
 
-    /* ---------- HTML ausgeben ---------- */
+    /* ---------- HTML Liste ---------- */
     std::cout
         << "Content-Type: text/html; charset=utf-8\r\n\r\n"
         << "<!DOCTYPE html><html><head><meta charset='utf-8'>"
@@ -104,7 +166,7 @@ void render_list_view()
 
     for (const auto& f : files) {
         std::cout
-            << "<li><a href='?file="
+            << "<li><a href='?open="
             << html_escape(f)
             << "'>"
             << html_escape(f)
