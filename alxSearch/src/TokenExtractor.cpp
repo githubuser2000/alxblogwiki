@@ -3,21 +3,31 @@
 #include <fstream>
 #include <sstream>
 #include <set>
+#include <map>
 
 TokenExtractor::TokenExtractor() {}
 
-// Tokenisierung: Leerzeichen + Großbuchstaben inkl. deutsche Umlaute
-std::vector<std::string> TokenExtractor::extractTokens(const std::string& line) const {
-    std::vector<std::string> tokens;
+const std::vector<TokenInfo>& TokenExtractor::getTokens() const {
+    return csv_rows;
+}
 
-    std::istringstream iss(line);
+std::vector<TokenInfo> TokenExtractor::extractTokens(const std::string& text, const std::string& filename) const {
+    std::vector<TokenInfo> tokens;
+    std::regex inner_regex("([A-ZÄÖÜ][a-zäöüß]*)");
+
+    std::istringstream iss(text);
     std::string word;
-    while (iss >> word) {
-        // Regex für Großbuchstaben-Token inkl. deutsche Buchstaben
-        // Hinweis: UTF-8 direkt in std::string, libc++ kompatibel
-        std::regex inner_regex("([A-ZÄÖÜ][a-zäöüß]*)");
-        std::set<std::string> unique_tokens;
+    size_t search_pos = 0;
 
+    // Map um Token -> Liste der Positionen innerhalb dieser Datei
+    std::map<std::string, std::vector<size_t>> token_positions;
+
+    while (iss >> word) {
+        size_t word_pos = text.find(word, search_pos);
+        if (word_pos == std::string::npos) break;
+        search_pos = word_pos + word.size();
+
+        std::set<std::string> unique_tokens;
         auto words_begin = std::sregex_iterator(word.begin(), word.end(), inner_regex);
         auto words_end   = std::sregex_iterator();
 
@@ -25,8 +35,14 @@ std::vector<std::string> TokenExtractor::extractTokens(const std::string& line) 
             unique_tokens.insert(it->str());
         }
 
-        // Einfügen der einzigartigen Tokens
-        tokens.insert(tokens.end(), unique_tokens.begin(), unique_tokens.end());
+        for (const auto& tok : unique_tokens) {
+            token_positions[tok].push_back(word_pos);
+        }
+    }
+
+    // Baue TokenInfo-Strukturen
+    for (const auto& [tok, positions] : token_positions) {
+        tokens.push_back({tok, filename, 0, 0, positions});
     }
 
     return tokens;
@@ -36,27 +52,21 @@ void TokenExtractor::processFile(const std::string& filepath) {
     std::ifstream file(filepath);
     if (!file) return;
 
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    std::string text = buffer.str();
+
+    auto file_tokens = extractTokens(text, filepath);
+
     std::unordered_map<std::string,int> file_count;
-    std::string line;
-
-    while (std::getline(file,line)) {
-        auto tokens = extractTokens(line);
-        for (const auto& token : tokens) {
-            ++file_count[token];
-            ++global_count[token];
-        }
+    for (auto &tok : file_tokens) {
+        file_count[tok.token] = tok.positions.size();
+        global_count[tok.token] += tok.positions.size();
     }
 
-    for (auto& [token,count] : file_count) {
-        csv_rows.push_back({token, filepath, 0, count});
-    }
-}
-
-void TokenExtractor::writeCSV(const std::string& csvfile) const {
-    std::ofstream csv(csvfile);
-    csv << "Token,Dateiname,HäufigkeitGesamt,HäufigkeitDatei\n";
-    for (auto row : csv_rows) {
-        row.global_count = global_count.at(row.token);
-        csv << row.token << "," << row.filename << "," << row.global_count << "," << row.file_count << "\n";
+    for (auto &tok : file_tokens) {
+        tok.file_count = file_count[tok.token];
+        tok.global_count = global_count[tok.token];
+        csv_rows.push_back(tok);
     }
 }

@@ -8,17 +8,18 @@ struct TokenInfo {
     std::string filename;
     int global_count;
     int file_count;
+    std::vector<size_t> positions; // Alle Positionen in der Datei
 };
 
 class TokenExtractor {
 public:
     TokenExtractor();
     void processFile(const std::string& filepath);
-    void writeCSV(const std::string& csvfile) const;
+    const std::vector<TokenInfo>& getTokens() const;
 
 private:
     std::unordered_map<std::string, int> global_count;
     std::vector<TokenInfo> csv_rows;
 
-    std::vector<std::string> extractTokens(const std::string& line) const;
+    std::vector<TokenInfo> extractTokens(const std::string& text, const std::string& filename) const;
 };
