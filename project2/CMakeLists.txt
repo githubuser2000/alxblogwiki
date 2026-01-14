@@ -1,35 +1,22 @@
-cmake_minimum_required(VERSION 3.16)
-project(docview LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.10)
+project(CgiExplorer VERSION 1.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 20)
+# C++17 Standard erzwingen
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Binary neben build/
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY
-    ${CMAKE_SOURCE_DIR}/bin
-)
-
+# Header-Verzeichnis einbinden
 include_directories(include)
 
-add_executable(docs.cgi
-    src/main.cpp
-    src/html.cpp
-    src/query.cpp
-    src/renderer.cpp
-    src/listview.cpp
-    src/csv.cpp
-    src/pandoc.cpp
-    src/media_view.cpp
-    src/fileview.cpp
-    src/pdf_template.cpp
-)
+# Alle Quelldateien sammeln
+file(GLOB SOURCES "src/*.cpp")
 
-target_link_libraries(docs.cgi stdc++)
+# Das Executable erstellen
+add_executable(explorer.cgi ${SOURCES})
 
-# PDFs werden direkt aus templates/ gelesen – kein Copy nötig!
-# Wenn du trotzdem eine Kopie in bin/ willst, aktiviere nur, wenn Schreibrechte passen
-# add_custom_command(TARGET docs.cgi POST_BUILD
-#     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-#         "${CMAKE_SOURCE_DIR}/templates/pdf_template.html"
-#         "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/pdf_template.html"
-# )
+# Filesystem-Bibliothek linken (für ältere g++ Versionen notwendig)
+target_link_libraries(explorer.cgi stdc++fs)
+
+# Optional: Installationsziel festlegen (z.B. nach /usr/lib/cgi-bin/)
+# install(TARGETS explorer.cgi DESTINATION /usr/lib/cgi-bin)
+

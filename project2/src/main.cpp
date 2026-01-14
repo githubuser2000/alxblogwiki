@@ -1,76 +1,52 @@
-#include "config.h"
-#include "html.h"
-#include "query.h"
-#include "renderer.h"
-#include "listview.h"
-#include "csv.h"
-#include "media_view.h"
-#include "pdf_template.h"
-
-#include <filesystem>
 #include <iostream>
-#include <algorithm>
+#include <filesystem>
+#include "Config.h"
+#include "Utils.h"
+#include "HtmlRenderer.h"
 
 namespace fs = std::filesystem;
 
 int main() {
-    // ---- HTTP + Security Headers ----
-    print_http_headers();
+    char* query_raw = getenv("QUERY_STRING");
+    std::string query = query_raw ? query_raw : "";
+    std::string req_path = get_query_param(query, "path");
 
-    // ---- Query auswerten ----
-    std::string file = query_file();
-
-    // ================= LIST VIEW =================
-    if (file.empty()) {
-        render_list_view();
-        return 0;
+    // Validierung & Sicherheit
+    if (req_path.empty() || req_path.find("..") != std::string::npos || req_path.find(Config::SYS_ROOT) != 0) {
+        req_path = Config::SYS_ROOT;
     }
 
-    // ================= FILE CHECK =================
-    fs::path p = fs::path(DOCROOT) / file;
-    if (!fs::exists(p) || !fs::is_regular_file(p) || fs::is_symlink(p)) {
-        std::cout << "<h1>404 - File not found</h1>";
-        return 0;
+    fs::path current_path(req_path);
+    
+    print_http_header();
+    print_html_start(req_path);
+
+    try {
+        // Zurück-Link
+        if (!fs::equivalent(current_path, Config::SYS_ROOT)) {
+		print_list_item(".. (Zurück)", current_path.parent_path().string(), true, "");
+        }
+
+           for (const auto& entry : fs::directory_iterator(current_path)) {
+        std::string name = entry.path().filename().string();
+        std::string full_sys_path = entry.path().string();
+        std::string ext = entry.path().extension().string();
+
+        if (entry.is_directory()) {
+            print_list_item(name, full_sys_path, true);
+        } else {
+            std::string web_url = map_to_web_path(full_sys_path, Config::SYS_ROOT, Config::WEB_ROOT);
+            // Prüfung auf renderbare Formate
+            bool is_renderable = (ext == ".html" || ext == ".htm" || ext == ".md" || ext == ".org" || ext == ".txt");
+            print_list_item(name, web_url, false, ext, is_renderable);
+        }
+    }
+ 
+    } catch (const std::exception& e) {
+        std::cout << "<p>Fehler: " << e.what() << "</p>";
     }
 
-    // Extension normalisieren
-    std::string ext = p.extension().string();
-    std::transform(ext.begin(), ext.end(), ext.begin(),
-                   [](unsigned char c){ return std::tolower(c); });
-
-    // ================= MEDIA (FULLSCREEN) =================
-    if (ext == ".mp4") {
-        render_mp4_fullscreen(file);  // Wrapper für render_video_view
-        return 0;
-    }
-
-    if (ext == ".pdf") {
-        render_pdf_template_redirect(file);  // PDF über HTML Template + JS öffnen
-        return 0;
-    }
-
-    // ================= HTML WRAPPER =================
-    std::cout << "<!DOCTYPE html><html><head><meta charset='utf-8'>"
-              << "<title>" << html_escape(file) << "</title>"
-              << "<style>body{margin:0;padding:4em;font-family:serif}"
-              << "a{position:fixed;top:1em;left:1em}</style></head><body>"
-              << "<a href='?'>← zurück</a>";
-
-    // ================= DISPATCH =================
-    if (ext == ".md" || ext == ".org") {
-        if (!render_markdown_or_org(p))
-            render_text_file(p);
-    }
-    else if (ext == ".csv") {
-        render_csv_fullscreen(p);
-    }
-    else if (ext == ".txt" || ext == ".tx") {
-        render_text_file(p);
-    }
-    else {
-        std::cout << "<h1>Invalid file type</h1>";
-    }
-
-    std::cout << "</body></html>";
+    print_html_end();
     return 0;
 }
+
