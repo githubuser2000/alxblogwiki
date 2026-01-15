@@ -427,3 +427,105 @@ mod tests {
         assert!(dict1.contains_key("key2"));
     }
 }
+// Additional module for handling i18n (simplified version)
+mod i18n {
+    pub struct ParametersMain;
+    
+    impl ParametersMain {
+        pub const GRUNDSTRUKTUREN: [&'static str; 1] = ["Grundstrukturen"];
+    }
+}
+
+// Alternative implementation using a simpler approach
+fn generate_html_structure_alternative(data: &OrderedDict, blank: bool) -> String {
+    let mut html = String::new();
+    
+    fn build_html_recursive(
+        data: &OrderedDict,
+        depth: usize,
+        blank: bool,
+        html: &mut String,
+    ) {
+        let should_reverse = depth >= 2;
+        
+        let items: Vec<(&String, &OrderedValue)> = if should_reverse {
+            data.iter().rev().collect()
+        } else {
+            data.iter().collect()
+        };
+        
+        for (key, value) in items {
+            let is_container = match value {
+                OrderedValue::Dict(dict) => dict.len() > 1 || depth < 2,
+                _ => depth < 2,
+            };
+            
+            if is_container {
+                html.push_str("<div style=\"white-space: normal; border-left: 40px solid rgba(0, 0, 0, .0);\">");
+            }
+            
+            match value {
+                OrderedValue::Null => {
+                    if blank {
+                        html.push_str(&format!(
+                            "<input type=\"checkbox\" class=\"ordGru\" onchange=\"toggleP2(this,-10,'✗','{}','{}');\" id=\"ordGru{}\" value=\"{}\">",
+                            i18n::ParametersMain::GRUNDSTRUKTUREN[0],
+                            key,
+                            key,
+                            key
+                        ));
+                    }
+                    html.push_str(&format!("<label id=\"ordGruB{}\">{}</label>", 
+                        key, 
+                        key.replace("_", " ")
+                    ));
+                    html.push_str("</input>");
+                }
+                OrderedValue::Dict(inner_dict) => {
+                    html.push_str(key);
+                    html.push(' ');
+                    build_html_recursive(inner_dict, depth + 1, blank, html);
+                }
+                OrderedValue::String(s) => {
+                    html.push_str(s);
+                    html.push(' ');
+                }
+            }
+            
+            if is_container {
+                html.push_str("</div>");
+            }
+        }
+    }
+    
+    build_html_recursive(data, 0, blank, &mut html);
+    html
+}
+
+// Example of how to use the library
+fn example_usage() {
+    // Parse command line arguments
+    let args: Vec<String> = std::env::args().collect();
+    let blank_mode = args.len() > 1 && args[1] == "blank";
+    
+    // In practice, you would load wahl15 from a JSON file or other source
+    let wahl15_data = OrderedDict::new(); // Load your actual data here
+    
+    // Process the data structure
+    let processed_structure = process_wahl_structure(&wahl15_data);
+    
+    // Generate HTML
+    let html_output = if blank_mode {
+        format!(
+            "<div style=\"white-space: normal; border-left: 40px solid rgba(0, 0, 0, .0);\" id='grundstrukturenDiv'>{}",
+            myprint(&processed_structure, 0, true)
+        )
+    } else {
+        format!(
+            "<div style=\"white-space: normal; border-left: 40px solid rgba(0, 0, 0, .0);\">{}",
+            myprint(&processed_structure, 0, false)
+        )
+    };
+    
+    println!("{}", html_output);
+}
