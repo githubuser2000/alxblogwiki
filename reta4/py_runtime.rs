@@ -1,114 +1,152 @@
-// --- Klassen & Objekte ---------------------------------------------
+// --- Exception-Mechanismus -----------------------------------------
 
 #[derive(Clone)]
-pub struct PyClass {
+pub struct PyException {
     pub name: String,
-    pub dict: Rc<RefCell<BTreeMap<String, PyValue>>>,
+    pub message: String,
+}
+
+impl PyException {
+    pub fn new(name: &str, message: &str) -> Self {
+        Self {
+            name: name.into(),
+            message: message.into(),
+        }
+    }
 }
 
 #[derive(Clone)]
-pub struct PyObject {
-    pub class: Rc<PyClass>,
-    pub fields: Rc<RefCell<BTreeMap<String, PyValue>>>,
+pub enum PyResult {
+    Value(PyValue),
+    Raise(PyException),
+    Break,
+    Continue,
+    Return(PyValue),
 }
 
-impl PyClass {
-    pub fn new(name: &str) -> Rc<Self> {
-        Rc::new(Self {
-            name: name.into(),
-            dict: Rc::new(RefCell::new(BTreeMap::new())),
-        })
-    }
+// --- Helfer --------------------------------------------------------
 
-    pub fn set_attr(&self, name: &str, val: PyValue) {
-        self.dict.borrow_mut().insert(name.into(), val);
-    }
-
-    pub fn get_attr(&self, name: &str) -> Option<PyValue> {
-        self.dict.borrow().get(name).cloned()
-    }
+pub fn raise(name: &str, msg: &str) -> PyResult {
+    PyResult::Raise(PyException::new(name, msg))
 }
 
-impl PyObject {
-    pub fn new(class: Rc<PyClass>) -> Self {
-        Self {
-            class,
-            fields: Rc::new(RefCell::new(BTreeMap::new())),
+pub fn ok(v: PyValue) -> PyResult {
+    PyResult::Value(v)
+}
+
+// --- try / except / finally ---------------------------------------
+
+pub fn py_try<F, H, G>(
+    try_block: F,
+    except_block: Option<H>,
+    finally_block: Option<G>,
+) -> PyResult
+where
+    F: Fn() -> PyResult,
+    H: Fn(PyException) -> PyResult,
+    G: Fn() -> PyResult,
+{
+    let mut result = match try_block() {
+        PyResult::Raise(e) => {
+            if let Some(handler) = except_block {
+                handler(e)
+            } else {
+                PyResult::Raise(e)
+            }
+        }
+        other => other,
+    };
+
+    if let Some(finally_fn) = finally_block {
+        match finally_fn() {
+            PyResult::Raise(e) => return PyResult::Raise(e),
+            _ => {}
         }
     }
 
-    pub fn set_attr(&self, name: &str, val: PyValue) {
-        self.fields.borrow_mut().insert(name.into(), val);
-    }
+    result
+}
 
-    pub fn get_attr(&self, name: &str) -> Option<PyValue> {
-        if let Some(v) = self.fields.borrow().get(name) {
-            return Some(v.clone());
-        }
-        self.class.get_attr(name)
+// --- throw als Python-Funktion ------------------------------------
+
+pub fn py_raise(args: Vec<PyValue>) -> PyValue {
+    let msg = match args.get(0) {
+        Some(PyValue::Str(s)) => s.clone(),
+        _ => "Exception".into(),
+    };
+    PyValue::Exception(msg)
+}
+
+// --- Vergleich / Bool ---------------------------------------------
+
+pub fn py_truthy(v: &PyValue) -> bool {
+    match v {
+        PyValue::None => false,
+        PyValue::Bool(b) => *b,
+        PyValue::Int(i) => *i != 0,
+        PyValue::Float(f) => *f != 0.0,
+        PyValue::Str(s) => !s.is_empty(),
+        PyValue::List(l) => !l.is_empty(),
+        PyValue::Dict(d) => !d.is_empty(),
+        _ => true,
     }
 }
 
-// --- Erweiterung PyValue -------------------------------------------
+// --- if / while / for (strukturell) -------------------------------
 
-impl PyValue {
-    pub fn as_object(&self) -> Option<PyObject> {
-        match self {
-            PyValue::Dict(_) => None,
-            PyValue::Function(_) => None,
-            PyValue::Exception(_) => None,
-            _ => None,
-        }
-    }
-}
-
-// --- Methodenbindung (self / cls) ----------------------------------
-
-pub fn bind_method(
-    func: PyValue,
-    target: PyValue,
-) -> PyValue {
-    match func {
-        PyValue::Function(f) => {
-            PyValue::Function(Rc::new(move |mut args| {
-                let mut new_args = vec![target.clone()];
-                new_args.append(&mut args);
-                f(new_args)
-            }))
-        }
-        _ => PyValue::Exception("TypeError: not callable".into()),
-    }
-}
-
-// --- getattr / setattr ---------------------------------------------
-
-pub fn py_getattr(obj: &PyObject, name: &str) -> PyValue {
-    if let Some(v) = obj.get_attr(name) {
-        match v {
-            PyValue::Function(_) => bind_method(v, PyValue::Dict(obj.fields.borrow().clone())),
-            _ => v,
-        }
+pub fn py_if<F, G>(cond: &PyValue, then_fn: F, else_fn: Option<G>) -> PyResult
+where
+    F: Fn() -> PyResult,
+    G: Fn() -> PyResult,
+{
+    if py_truthy(cond) {
+        then_fn()
+    } else if let Some(e) = else_fn {
+        e()
     } else {
-        PyValue::Exception(format!(
-            "AttributeError: '{}' has no attribute '{}'",
-            obj.class.name, name
-        ))
+        ok(PyValue::None)
     }
 }
 
-pub fn py_setattr(obj: &PyObject, name: &str, val: PyValue) {
-    obj.set_attr(name, val);
+pub fn py_while<F, G>(cond_fn: F, body_fn: G) -> PyResult
+where
+    F: Fn() -> PyValue,
+    G: Fn() -> PyResult,
+{
+    loop {
+        if !py_truthy(&cond_fn()) {
+            return ok(PyValue::None);
+        }
+        match body_fn() {
+            PyResult::Break => return ok(PyValue::None),
+            PyResult::Continue => continue,
+            PyResult::Raise(e) => return PyResult::Raise(e),
+            PyResult::Return(v) => return PyResult::Return(v),
+            _ => {}
+        }
+    }
 }
 
-// --- Enum-Support (wie Python Enum) --------------------------------
-
-pub fn py_enum(name: &str, members: &[&str]) -> Rc<PyClass> {
-    let cls = PyClass::new(name);
-    for (i, m) in members.iter().enumerate() {
-        cls.set_attr(
-            m,
-            PyValue::Int(i as i64),
-        );
+pub fn py_for<F>(
+    iterable: &PyValue,
+    body: F,
+) -> PyResult
+where
+    F: Fn(PyValue) -> PyResult,
+{
+    match iterable {
+        PyValue::List(items) => {
+            for v in items {
+                match body(v.clone()) {
+                    PyResult::Break => break,
+                    PyResult::Continue => continue,
+                    PyResult::Raise(e) => return PyResult::Raise(e),
+                    PyResult::Return(v) => return PyResult::Return(v),
+                    _ => {}
+                }
+            }
+            ok(PyValue::None)
+        }
+        _ => raise("TypeError", "object is not iterable"),
     }
-    cls
 }
