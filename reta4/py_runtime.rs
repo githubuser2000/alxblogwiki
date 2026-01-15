@@ -1,152 +1,132 @@
-// --- Exception-Mechanismus -----------------------------------------
+// --- Expression AST ------------------------------------------------
 
-#[derive(Clone)]
-pub struct PyException {
-    pub name: String,
-    pub message: String,
+#[derive(Clone, Debug)]
+pub enum Expr {
+    Value(PyValue),
+    Var(String),
+    BinOp(Box<Expr>, String, Box<Expr>),
+    Call(Box<Expr>, Vec<Expr>),
 }
 
-impl PyException {
-    pub fn new(name: &str, message: &str) -> Self {
+#[derive(Clone, Debug)]
+pub enum Stmt {
+    Expr(Expr),
+    Assign(String, Expr),
+    Return(Expr),
+}
+
+// --- Eval Context --------------------------------------------------
+
+#[derive(Clone)]
+pub struct EvalCtx {
+    pub locals: BTreeMap<String, PyValue>,
+    pub globals: BTreeMap<String, PyValue>,
+}
+
+impl EvalCtx {
+    pub fn new(globals: BTreeMap<String, PyValue>) -> Self {
         Self {
-            name: name.into(),
-            message: message.into(),
+            locals: BTreeMap::new(),
+            globals,
         }
+    }
+
+    pub fn get(&self, name: &str) -> Option<PyValue> {
+        self.locals.get(name)
+            .or_else(|| self.globals.get(name))
+            .cloned()
+    }
+
+    pub fn set(&mut self, name: &str, val: PyValue) {
+        self.locals.insert(name.into(), val);
     }
 }
 
-#[derive(Clone)]
-pub enum PyResult {
-    Value(PyValue),
-    Raise(PyException),
-    Break,
-    Continue,
-    Return(PyValue),
-}
+// --- Expression Evaluation ----------------------------------------
 
-// --- Helfer --------------------------------------------------------
+pub fn eval_expr(expr: &Expr, ctx: &mut EvalCtx) -> PyResult {
+    match expr {
+        Expr::Value(v) => ok(v.clone()),
 
-pub fn raise(name: &str, msg: &str) -> PyResult {
-    PyResult::Raise(PyException::new(name, msg))
-}
+        Expr::Var(name) => match ctx.get(name) {
+            Some(v) => ok(v),
+            None => raise("NameError", &format!("name '{}' is not defined", name)),
+        },
 
-pub fn ok(v: PyValue) -> PyResult {
-    PyResult::Value(v)
-}
+        Expr::BinOp(a, op, b) => {
+            let va = match eval_expr(a, ctx)? {
+                PyResult::Value(v) => v,
+                x => return x,
+            };
+            let vb = match eval_expr(b, ctx)? {
+                PyResult::Value(v) => v,
+                x => return x,
+            };
 
-// --- try / except / finally ---------------------------------------
-
-pub fn py_try<F, H, G>(
-    try_block: F,
-    except_block: Option<H>,
-    finally_block: Option<G>,
-) -> PyResult
-where
-    F: Fn() -> PyResult,
-    H: Fn(PyException) -> PyResult,
-    G: Fn() -> PyResult,
-{
-    let mut result = match try_block() {
-        PyResult::Raise(e) => {
-            if let Some(handler) = except_block {
-                handler(e)
-            } else {
-                PyResult::Raise(e)
+            match (va, vb, op.as_str()) {
+                (PyValue::Int(x), PyValue::Int(y), "+") => ok(PyValue::Int(x + y)),
+                (PyValue::Int(x), PyValue::Int(y), "-") => ok(PyValue::Int(x - y)),
+                (PyValue::Int(x), PyValue::Int(y), "*") => ok(PyValue::Int(x * y)),
+                (PyValue::Int(x), PyValue::Int(y), "/") => ok(PyValue::Float(x as f64 / y as f64)),
+                (PyValue::Str(a), PyValue::Str(b), "+") => ok(PyValue::Str(a + &b)),
+                _ => raise("TypeError", "unsupported operand type"),
             }
         }
-        other => other,
-    };
 
-    if let Some(finally_fn) = finally_block {
-        match finally_fn() {
-            PyResult::Raise(e) => return PyResult::Raise(e),
-            _ => {}
-        }
-    }
+        Expr::Call(func, args) => {
+            let f = match eval_expr(func, ctx)? {
+                PyResult::Value(PyValue::Function(f)) => f,
+                _ => return raise("TypeError", "object is not callable"),
+            };
 
-    result
-}
-
-// --- throw als Python-Funktion ------------------------------------
-
-pub fn py_raise(args: Vec<PyValue>) -> PyValue {
-    let msg = match args.get(0) {
-        Some(PyValue::Str(s)) => s.clone(),
-        _ => "Exception".into(),
-    };
-    PyValue::Exception(msg)
-}
-
-// --- Vergleich / Bool ---------------------------------------------
-
-pub fn py_truthy(v: &PyValue) -> bool {
-    match v {
-        PyValue::None => false,
-        PyValue::Bool(b) => *b,
-        PyValue::Int(i) => *i != 0,
-        PyValue::Float(f) => *f != 0.0,
-        PyValue::Str(s) => !s.is_empty(),
-        PyValue::List(l) => !l.is_empty(),
-        PyValue::Dict(d) => !d.is_empty(),
-        _ => true,
-    }
-}
-
-// --- if / while / for (strukturell) -------------------------------
-
-pub fn py_if<F, G>(cond: &PyValue, then_fn: F, else_fn: Option<G>) -> PyResult
-where
-    F: Fn() -> PyResult,
-    G: Fn() -> PyResult,
-{
-    if py_truthy(cond) {
-        then_fn()
-    } else if let Some(e) = else_fn {
-        e()
-    } else {
-        ok(PyValue::None)
-    }
-}
-
-pub fn py_while<F, G>(cond_fn: F, body_fn: G) -> PyResult
-where
-    F: Fn() -> PyValue,
-    G: Fn() -> PyResult,
-{
-    loop {
-        if !py_truthy(&cond_fn()) {
-            return ok(PyValue::None);
-        }
-        match body_fn() {
-            PyResult::Break => return ok(PyValue::None),
-            PyResult::Continue => continue,
-            PyResult::Raise(e) => return PyResult::Raise(e),
-            PyResult::Return(v) => return PyResult::Return(v),
-            _ => {}
-        }
-    }
-}
-
-pub fn py_for<F>(
-    iterable: &PyValue,
-    body: F,
-) -> PyResult
-where
-    F: Fn(PyValue) -> PyResult,
-{
-    match iterable {
-        PyValue::List(items) => {
-            for v in items {
-                match body(v.clone()) {
-                    PyResult::Break => break,
-                    PyResult::Continue => continue,
-                    PyResult::Raise(e) => return PyResult::Raise(e),
-                    PyResult::Return(v) => return PyResult::Return(v),
-                    _ => {}
+            let mut vals = Vec::new();
+            for a in args {
+                match eval_expr(a, ctx)? {
+                    PyResult::Value(v) => vals.push(v),
+                    x => return x,
                 }
             }
-            ok(PyValue::None)
+            ok(f(vals))
         }
-        _ => raise("TypeError", "object is not iterable"),
     }
+}
+
+// --- Statement Execution ------------------------------------------
+
+pub fn exec_stmt(stmt: &Stmt, ctx: &mut EvalCtx) -> PyResult {
+    match stmt {
+        Stmt::Expr(e) => eval_expr(e, ctx),
+        Stmt::Assign(name, e) => {
+            match eval_expr(e, ctx)? {
+                PyResult::Value(v) => {
+                    ctx.set(name, v);
+                    ok(PyValue::None)
+                }
+                x => x,
+            }
+        }
+        Stmt::Return(e) => match eval_expr(e, ctx)? {
+            PyResult::Value(v) => PyResult::Return(v),
+            x => x,
+        },
+    }
+}
+
+// --- eval / exec ---------------------------------------------------
+
+pub fn py_eval(expr: Expr, globals: BTreeMap<String, PyValue>) -> PyResult {
+    let mut ctx = EvalCtx::new(globals);
+    eval_expr(&expr, &mut ctx)
+}
+
+pub fn py_exec(stmts: Vec<Stmt>, globals: BTreeMap<String, PyValue>) -> PyResult {
+    let mut ctx = EvalCtx::new(globals);
+    for s in stmts {
+        match exec_stmt(&s, &mut ctx) {
+            PyResult::Return(v) => return ok(v),
+            PyResult::Raise(e) => return PyResult::Raise(e),
+            _ => {}
+        }
+    }
+    ok(PyValue::None)
 }
