@@ -262,4 +262,265 @@ std::vector<std::vector<std::string>> read_csv_file(const std::string& filename,
         std::string field;
         bool in_quotes = false;
         
-        for (size_t i = 0; i
+        for (size_t i = 0; i < line.length(); ++i) {
+            char c = line[i];
+            
+            if (c == '"') {
+                // Handle escaped quotes
+                if (i + 1 < line.length() && line[i + 1] == '"') {
+                    field += '"';
+                    ++i;
+                } else {
+                    in_quotes = !in_quotes;
+                }
+            } else if (c == delimiter && !in_quotes) {
+                row.push_back(utils::trim(field));
+                field.clear();
+            } else {
+                field += c;
+            }
+        }
+        
+        // Add last field
+        row.push_back(utils::trim(field));
+        data.push_back(row);
+    }
+    
+    return data;
+}
+
+// Language handling
+std::map<std::string, std::map<std::string, std::string>> get_translations() {
+    static std::map<std::string, std::map<std::string, std::string>> translations = {
+        {"de", {
+            {"help", "Hilfe"},
+            {"error", "Fehler"},
+            {"warning", "Warnung"},
+            {"success", "Erfolg"},
+            {"table", "Tabelle"},
+            {"row", "Zeile"},
+            {"column", "Spalte"},
+            {"cell", "Zelle"},
+            {"header", "Kopfzeile"},
+            {"footer", "Fußzeile"},
+            {"print", "Drucken"},
+            {"export", "Exportieren"},
+            {"import", "Importieren"},
+            {"save", "Speichern"},
+            {"load", "Laden"},
+            {"quit", "Beenden"}
+        }},
+        {"en", {
+            {"help", "Help"},
+            {"error", "Error"},
+            {"warning", "Warning"},
+            {"success", "Success"},
+            {"table", "Table"},
+            {"row", "Row"},
+            {"column", "Column"},
+            {"cell", "Cell"},
+            {"header", "Header"},
+            {"footer", "Footer"},
+            {"print", "Print"},
+            {"export", "Export"},
+            {"import", "Import"},
+            {"save", "Save"},
+            {"load", "Load"},
+            {"quit", "Quit"}
+        }},
+        {"fr", {
+            {"help", "Aide"},
+            {"error", "Erreur"},
+            {"warning", "Avertissement"},
+            {"success", "Succès"},
+            {"table", "Tableau"},
+            {"row", "Ligne"},
+            {"column", "Colonne"},
+            {"cell", "Cellule"},
+            {"header", "En-tête"},
+            {"footer", "Pied de page"},
+            {"print", "Imprimer"},
+            {"export", "Exporter"},
+            {"import", "Importer"},
+            {"save", "Sauvegarder"},
+            {"load", "Charger"},
+            {"quit", "Quitter"}
+        }},
+        {"es", {
+            {"help", "Ayuda"},
+            {"error", "Error"},
+            {"warning", "Advertencia"},
+            {"success", "Éxito"},
+            {"table", "Tabla"},
+            {"row", "Fila"},
+            {"column", "Columna"},
+            {"cell", "Celda"},
+            {"header", "Encabezado"},
+            {"footer", "Pie de página"},
+            {"print", "Imprimir"},
+            {"export", "Exportar"},
+            {"import", "Importar"},
+            {"save", "Guardar"},
+            {"load", "Cargar"},
+            {"quit", "Salir"}
+        }}
+    };
+    
+    return translations;
+}
+
+std::string translate(const std::string& key, const std::string& language) {
+    auto translations = get_translations();
+    
+    if (translations.find(language) != translations.end()) {
+        const auto& lang_dict = translations[language];
+        if (lang_dict.find(key) != lang_dict.end()) {
+            return lang_dict.at(key);
+        }
+    }
+    
+    // Fallback to English
+    if (language != "en") {
+        const auto& en_dict = translations["en"];
+        if (en_dict.find(key) != en_dict.end()) {
+            return en_dict.at(key);
+        }
+    }
+    
+    // Return key if not found
+    return key;
+}
+
+// Output format strings
+std::map<SyntaxType, std::string> get_output_format_strings() {
+    return {
+        {SyntaxType::Default, "Standard Shell Ausgabe"},
+        {SyntaxType::Nichts, "Keine Ausgabe"},
+        {SyntaxType::Markdown, "Markdown Format"},
+        {SyntaxType::BBCode, "BBCode Format"},
+        {SyntaxType::Html, "HTML Format"},
+        {SyntaxType::Csv, "CSV Format"},
+        {SyntaxType::Emacs, "Emacs Org-Mode Format"}
+    };
+}
+
+std::string get_output_format_name(SyntaxType type) {
+    auto formats = get_output_format_strings();
+    if (formats.find(type) != formats.end()) {
+        return formats[type];
+    }
+    return "Unbekanntes Format";
+}
+
+// Table handling strings
+std::map<std::string, std::string> get_table_handling_strings() {
+    return {
+        {"Gestirn", "Gestirn"},
+        {"Sonne (keine Potenzen)", "Sonne (keine Potenzen)"},
+        {"Mond (Potenzen)", "Mond (Potenzen)"},
+        {"Planet (2*n)", "Planet (2*n)"},
+        {"wäre eine schwarze Sonne (-3*n), wenn ins Negative durch eine Typ 13 verdreht", 
+         "wäre eine schwarze Sonne (-3*n), wenn ins Negative durch eine Typ 13 verdreht"},
+        {"und außerdem", ", und außerdem "},
+        {"Kombination_(Galaxie_und_schwarzes_Loch)_(14_mit_13)", 
+         "Kombination (Galaxie und schwarzes Loch) (14 mit 13)"},
+        {"Wichtigstes_zum_gedanklich_einordnen", "Wichtigstes zum gedanklich einordnen"},
+        {"Zweitwichtigste", "Zweitwichtigste"},
+        {"tiere", "Tiere"},
+        {"berufe", "Berufe"},
+        {"intelligenz", "Intelligenz"},
+        {"Kombination_(Universum_und_Galaxie)_(14_mit_15)", 
+         "Kombination (Universum und Galaxie) (14 mit 15)"}
+    };
+}
+
+// Main help text
+const char* RETA_HILFE = R"(
+RETA - Tabellenverarbeitungsprogramm
+=====================================
+
+RETA ist ein leistungsstarkes Programm zur Verarbeitung und Darstellung von
+Tabellendaten mit Unterstützung für verschiedene Ausgabeformate und erweiterte
+Funktionen wie Tabellenkombinationen und benutzerdefinierte Spalten.
+
+HAUPTBEFEHLE:
+  -zeilen          Zeilenparameter festlegen
+  -spalten         Spaltenparameter festlegen  
+  -ausgabe         Ausgabeparameter festlegen
+  -kombination     Tabellenkombinationen
+  -h, --help       Diese Hilfe anzeigen
+
+ZEILENPARAMETER:
+  --alles                    Alle Zeilen anzeigen
+  --zeit=heute,gestern,morgen  Zeitbasierte Filter
+  --zaehlung=1-10,20-30      Numerische Bereiche
+  --typ=sonne,mond,planet    Zeilentypen filtern
+  --primzahlen=aussenerste,innenerste  Primzahlenfilter
+  --potenzenvonzahlen=2,3,5  Potenzen von Zahlen
+  --vielfachevonzahlen=7,11,13 Vielfache von Zahlen
+  --primzahlvielfache=3,5,7  Primzahlvielfache
+  --invertieren              Auswahl invertieren
+
+SPALTENPARAMETER:
+  --multiplikationen=2,3,5,7     Multiplikationstabellen
+  --gebrochenuniversum=11,13,17  Gebrochenes Universum
+  --gebrochengalaxie=19,23,29    Gebrochene Galaxie  
+  --gebrochenemotion=31,37,41    Gebrochene Emotion
+  --gebrochengroesse=43,47,53    Gebrochene Größe
+  --primvielfache=59,61,67       Primzahlvielfache
+  --alles                        Alle verfügbaren Spalten
+
+AUSGABEPARAMETER:
+  --art=shell|html|bbcode|markdown|csv|emacs  Ausgabeformat
+  --breite=80                                 Ausgabebreite
+  --breiten=20,30,40,50                       Individuelle Spaltenbreiten
+  --keineueberschriften                       Überschriften ausblenden
+  --keinenummerierung                         Zeilennummerierung ausblenden
+  --keineleereninhalte                        Leere Inhalte ausblenden
+  --spaltenreihenfolgeundnurdiese=1,3,5,7     Spaltenreihenfolge festlegen
+  --nocolor|justtext                          Farbausgabe deaktivieren
+  --endlessscreen|onetable                    Kontinuierliche Ausgabe
+
+KOMBINATIONSPARAMETER:
+  --galaxie=Tiere,Berufe,Intelligenz     Galaxiekombinationen
+  --universum=Universum,Dimension,Energie Universumskombinationen
+
+BEISPIELE:
+  reta -zeilen --alles --typ=sonne,mond
+  reta -spalten --multiplikationen=2,3,5 --gebrochenuniversum=11,13
+  reta -ausgabe --art=html --breite=80 --nocolor
+  reta -kombination --galaxie=Tiere,Berufe --universum=Dimension,Zeit
+
+KONFIGURATION:
+  Die Konfiguration erfolgt über Kommandozeilenparameter. Für komplexe
+  Anwendungsfälle können Skripte mit mehreren Aufrufen kombiniert werden.
+
+  Standardmäßig wird die religion.csv Datei im csv/ Verzeichnis verwendet.
+  Zusätzliche CSV-Dateien können für Kombinationen und Konkatenationen
+  bereitgestellt werden.
+
+  Die Ausgabe kann in verschiedene Formate konvertiert werden, einschließlich
+  HTML für Webanwendungen, BBCode für Foren, Markdown für Dokumentation
+  und CSV für weitere Verarbeitung.
+
+  Das Programm unterstützt Farbausgabe im Terminal, die mit --nocolor
+  deaktiviert werden kann. Bei breiten Tabellen wird automatisch ein
+  Zeilenumbruch durchgeführt, der mit --endlessscreen deaktiviert werden kann.
+
+FEHLERBEHANDLUNG:
+  Bei Syntaxfehlern oder ungültigen Parametern werden detaillierte
+  Fehlermeldungen angezeigt. Dateifehler führen zu entsprechenden
+  Hinweisen mit Dateipfadinformationen.
+
+  Für Debug-Informationen können zusätzliche Parameter aktiviert werden,
+  um den Verarbeitungsprozess zu verfolgen.
+
+VERSION:
+  RETA 1.0.0 - C++ Implementierung
+  Basierend auf der originalen Python/Rust Implementierung
+
+LIZENZ:
+  Proprietäre Software - Alle Rechte vorbehalten
+)";
+
+} // namespace i18n
