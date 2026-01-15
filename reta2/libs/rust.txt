@@ -1,0 +1,12 @@
+// main module structure
+// src/
+//   tables/
+//     mod.rs
+//     output.rs
+//     combi.rs
+//     prepare.rs
+//     maintable.rs
+//   lib.rs
+//   main.rs
+
+// First, let's define the core types and enums
