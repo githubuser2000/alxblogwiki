@@ -1,207 +1,114 @@
-use std::cell::RefCell;
-use std::collections::VecDeque;
-use std::collections::HashMap;
-use std::fmt;
-use std::rc::Rc;
-
-/* ============================
- * Python-Wert (dynamisch!)
- * ============================ */
+// --- Klassen & Objekte ---------------------------------------------
 
 #[derive(Clone)]
-pub enum PyValue {
-    None,
-    Bool(bool),
-    Int(i64),
-    Float(f64),
-    Str(String),
-    List(Rc<RefCell<Vec<PyValue>>>),
-    Dict(Rc<RefCell<PyDict>>),
-    Function(Rc<PyFunction>),
-    Exception(Rc<PyException>),
+pub struct PyClass {
+    pub name: String,
+    pub dict: Rc<RefCell<BTreeMap<String, PyValue>>>,
 }
 
-impl fmt::Debug for PyValue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PyValue::None => write!(f, "None"),
-            PyValue::Bool(b) => write!(f, "{}", b),
-            PyValue::Int(i) => write!(f, "{}", i),
-            PyValue::Float(fl) => write!(f, "{}", fl),
-            PyValue::Str(s) => write!(f, "\"{}\"", s),
-            PyValue::List(_) => write!(f, "<list>"),
-            PyValue::Dict(_) => write!(f, "<dict>"),
-            PyValue::Function(_) => write!(f, "<function>"),
-            PyValue::Exception(e) => write!(f, "<exception {:?}>", e),
-        }
+#[derive(Clone)]
+pub struct PyObject {
+    pub class: Rc<PyClass>,
+    pub fields: Rc<RefCell<BTreeMap<String, PyValue>>>,
+}
+
+impl PyClass {
+    pub fn new(name: &str) -> Rc<Self> {
+        Rc::new(Self {
+            name: name.into(),
+            dict: Rc::new(RefCell::new(BTreeMap::new())),
+        })
+    }
+
+    pub fn set_attr(&self, name: &str, val: PyValue) {
+        self.dict.borrow_mut().insert(name.into(), val);
+    }
+
+    pub fn get_attr(&self, name: &str) -> Option<PyValue> {
+        self.dict.borrow().get(name).cloned()
     }
 }
 
-/* ============================
- * Truthiness exakt wie Python
- * ============================ */
+impl PyObject {
+    pub fn new(class: Rc<PyClass>) -> Self {
+        Self {
+            class,
+            fields: Rc::new(RefCell::new(BTreeMap::new())),
+        }
+    }
+
+    pub fn set_attr(&self, name: &str, val: PyValue) {
+        self.fields.borrow_mut().insert(name.into(), val);
+    }
+
+    pub fn get_attr(&self, name: &str) -> Option<PyValue> {
+        if let Some(v) = self.fields.borrow().get(name) {
+            return Some(v.clone());
+        }
+        self.class.get_attr(name)
+    }
+}
+
+// --- Erweiterung PyValue -------------------------------------------
 
 impl PyValue {
-    pub fn truthy(&self) -> bool {
+    pub fn as_object(&self) -> Option<PyObject> {
         match self {
-            PyValue::None => false,
-            PyValue::Bool(b) => *b,
-            PyValue::Int(i) => *i != 0,
-            PyValue::Float(f) => *f != 0.0,
-            PyValue::Str(s) => !s.is_empty(),
-            PyValue::List(l) => !l.borrow().is_empty(),
-            PyValue::Dict(d) => !d.borrow().is_empty(),
-            PyValue::Function(_) => true,
-            PyValue::Exception(_) => true,
+            PyValue::Dict(_) => None,
+            PyValue::Function(_) => None,
+            PyValue::Exception(_) => None,
+            _ => None,
         }
     }
 }
 
-/* ============================
- * Ordered Dict (Insertion!)
- * ============================ */
+// --- Methodenbindung (self / cls) ----------------------------------
 
-#[derive(Clone)]
-pub struct PyDict {
-    keys: Vec<String>,
-    values: HashMap<String, PyValue>,
-}
-
-impl PyDict {
-    pub fn new() -> Self {
-        PyDict {
-            keys: Vec::new(),
-            values: HashMap::new(),
+pub fn bind_method(
+    func: PyValue,
+    target: PyValue,
+) -> PyValue {
+    match func {
+        PyValue::Function(f) => {
+            PyValue::Function(Rc::new(move |mut args| {
+                let mut new_args = vec![target.clone()];
+                new_args.append(&mut args);
+                f(new_args)
+            }))
         }
+        _ => PyValue::Exception("TypeError: not callable".into()),
     }
+}
 
-    pub fn set(&mut self, key: String, value: PyValue) {
-        if !self.values.contains_key(&key) {
-            self.keys.push(key.clone());
+// --- getattr / setattr ---------------------------------------------
+
+pub fn py_getattr(obj: &PyObject, name: &str) -> PyValue {
+    if let Some(v) = obj.get_attr(name) {
+        match v {
+            PyValue::Function(_) => bind_method(v, PyValue::Dict(obj.fields.borrow().clone())),
+            _ => v,
         }
-        self.values.insert(key, value);
-    }
-
-    pub fn get(&self, key: &str) -> PyValue {
-        self.values.get(key).cloned().unwrap_or(PyValue::None)
-    }
-
-    pub fn contains(&self, key: &str) -> bool {
-        self.values.contains_key(key)
-    }
-
-    pub fn iter(&self) -> Vec<(String, PyValue)> {
-        self.keys
-            .iter()
-            .map(|k| (k.clone(), self.values.get(k).unwrap().clone()))
-            .collect()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.keys.is_empty()
+    } else {
+        PyValue::Exception(format!(
+            "AttributeError: '{}' has no attribute '{}'",
+            obj.class.name, name
+        ))
     }
 }
 
-/* ============================
- * Exceptions (als Werte!)
- * ============================ */
-
-#[derive(Clone)]
-pub struct PyException {
-    pub name: String,
-    pub message: String,
+pub fn py_setattr(obj: &PyObject, name: &str, val: PyValue) {
+    obj.set_attr(name, val);
 }
 
-impl fmt::Debug for PyException {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {}", self.name, self.message)
+// --- Enum-Support (wie Python Enum) --------------------------------
+
+pub fn py_enum(name: &str, members: &[&str]) -> Rc<PyClass> {
+    let cls = PyClass::new(name);
+    for (i, m) in members.iter().enumerate() {
+        cls.set_attr(
+            m,
+            PyValue::Int(i as i64),
+        );
     }
-}
-
-/* ============================
- * Stack Frame
- * ============================ */
-
-#[derive(Clone)]
-pub struct PyFrame {
-    pub locals: Rc<RefCell<PyDict>>,
-    pub globals: Rc<RefCell<PyDict>>,
-}
-
-/* ============================
- * Python-Funktion
- * ============================ */
-
-pub struct PyFunction {
-    pub name: String,
-    pub func: fn(Vec<PyValue>, &mut PyFrame) -> Result<PyValue, PyValue>,
-}
-
-impl PyFunction {
-    pub fn call(
-        &self,
-        args: Vec<PyValue>,
-        frame: &mut PyFrame,
-    ) -> Result<PyValue, PyValue> {
-        (self.func)(args, frame)
-    }
-}
-
-/* ============================
- * Beispiel: primCreativity
- * (Dummy – wird später exakt
- * aus Python rekonstruiert)
- * ============================ */
-
-fn prim_creativity(args: Vec<PyValue>, _frame: &mut PyFrame) -> Result<PyValue, PyValue> {
-    if args.len() != 1 {
-        return Err(PyValue::Exception(Rc::new(PyException {
-            name: "TypeError".to_string(),
-            message: "primCreativity expects 1 argument".to_string(),
-        })));
-    }
-
-    match &args[0] {
-        PyValue::Int(n) => {
-            if *n < 2 {
-                Ok(PyValue::Bool(false))
-            } else {
-                for i in 2..*n {
-                    if n % i == 0 {
-                        return Ok(PyValue::Bool(false));
-                    }
-                }
-                Ok(PyValue::Bool(true))
-            }
-        }
-        _ => Err(PyValue::Exception(Rc::new(PyException {
-            name: "TypeError".to_string(),
-            message: "expected int".to_string(),
-        }))),
-    }
-}
-
-/* ============================
- * Test-Harness (Python-Stil)
- * ============================ */
-
-fn main() {
-    let globals = Rc::new(RefCell::new(PyDict::new()));
-    let locals = Rc::new(RefCell::new(PyDict::new()));
-
-    let mut frame = PyFrame { globals, locals };
-
-    let prim_fn = PyFunction {
-        name: "primCreativity".to_string(),
-        func: prim_creativity,
-    };
-
-    let fval = PyValue::Function(Rc::new(prim_fn));
-
-    let result = match fval {
-        PyValue::Function(f) => f.call(vec![PyValue::Int(17)], &mut frame),
-        _ => unreachable!(),
-    };
-
-    println!("Result = {:?}", result);
+    cls
 }

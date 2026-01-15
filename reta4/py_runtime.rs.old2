@@ -1,0 +1,123 @@
+// py_runtime.rs
+use std::collections::{BTreeMap, VecDeque};
+use std::fmt;
+use std::rc::Rc;
+use std::cell::RefCell;
+
+#[derive(Clone)]
+pub enum PyValue {
+    None,
+    Bool(bool),
+    Int(i64),
+    Float(f64),
+    Str(String),
+    List(Vec<PyValue>),
+    Dict(BTreeMap<String, PyValue>),
+    Function(Rc<dyn Fn(Vec<PyValue>) -> PyValue>),
+    Exception(String),
+}
+
+impl fmt::Debug for PyValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PyValue::None => write!(f, "None"),
+            PyValue::Bool(v) => write!(f, "{v}"),
+            PyValue::Int(v) => write!(f, "{v}"),
+            PyValue::Float(v) => write!(f, "{v}"),
+            PyValue::Str(v) => write!(f, "{:?}", v),
+            PyValue::List(v) => write!(f, "{:?}", v),
+            PyValue::Dict(v) => write!(f, "{:?}", v),
+            PyValue::Function(_) => write!(f, "<function>"),
+            PyValue::Exception(e) => write!(f, "Exception({})", e),
+        }
+    }
+}
+
+/* ---------------- Builtins ---------------- */
+
+pub fn py_len(v: &PyValue) -> PyValue {
+    match v {
+        PyValue::Str(s) => PyValue::Int(s.len() as i64),
+        PyValue::List(l) => PyValue::Int(l.len() as i64),
+        PyValue::Dict(d) => PyValue::Int(d.len() as i64),
+        _ => PyValue::Exception("TypeError: object has no len()".into()),
+    }
+}
+
+pub fn py_range(args: Vec<PyValue>) -> PyValue {
+    let (start, stop, step) = match args.len() {
+        1 => (0, as_int(&args[0]), 1),
+        2 => (as_int(&args[0]), as_int(&args[1]), 1),
+        3 => (as_int(&args[0]), as_int(&args[1]), as_int(&args[2])),
+        _ => return PyValue::Exception("TypeError: range expected 1-3 args".into()),
+    };
+
+    let mut out = Vec::new();
+    let mut i = start;
+    if step == 0 {
+        return PyValue::Exception("ValueError: step must not be zero".into());
+    }
+    if step > 0 {
+        while i < stop {
+            out.push(PyValue::Int(i));
+            i += step;
+        }
+    } else {
+        while i > stop {
+            out.push(PyValue::Int(i));
+            i += step;
+        }
+    }
+    PyValue::List(out)
+}
+
+pub fn py_enumerate(seq: &PyValue) -> PyValue {
+    match seq {
+        PyValue::List(l) => {
+            let mut out = Vec::new();
+            for (i, v) in l.iter().enumerate() {
+                out.push(PyValue::List(vec![PyValue::Int(i as i64), v.clone()]));
+            }
+            PyValue::List(out)
+        }
+        _ => PyValue::Exception("TypeError: enumerate expects list".into()),
+    }
+}
+
+pub fn py_isinstance(v: &PyValue, t: &str) -> PyValue {
+    let ok = match (v, t) {
+        (PyValue::Int(_), "int") => true,
+        (PyValue::Float(_), "float") => true,
+        (PyValue::Str(_), "str") => true,
+        (PyValue::List(_), "list") => true,
+        (PyValue::Dict(_), "dict") => true,
+        _ => false,
+    };
+    PyValue::Bool(ok)
+}
+
+fn as_int(v: &PyValue) -> i64 {
+    match v {
+        PyValue::Int(i) => *i,
+        PyValue::Float(f) => *f as i64,
+        _ => 0,
+    }
+}
+
+/* ---------------- Environment ---------------- */
+
+pub struct PyEnv {
+    pub globals: BTreeMap<String, PyValue>,
+}
+
+impl PyEnv {
+    pub fn new() -> Self {
+        let mut g = BTreeMap::new();
+
+        g.insert("len".into(), PyValue::Function(Rc::new(|a| py_len(&a[0]))));
+        g.insert("range".into(), PyValue::Function(Rc::new(py_range)));
+        g.insert("enumerate".into(), PyValue::Function(Rc::new(|a| py_enumerate(&a[0]))));
+
+        Self { globals: g }
+    }
+}
