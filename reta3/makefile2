@@ -1,0 +1,105 @@
+# RETA - Tabellenverarbeitungsprogramm
+# Makefile für C++ Implementierung
+
+# Compiler und Flags
+CXX = g++
+CXXFLAGS = -std=c++17 -Wall -Wextra -O2 -I. -I./include
+LDFLAGS = 
+LIBS = -lpthread
+
+# Bei Windows andere Einstellungen
+ifeq ($(OS),Windows_NT)
+    CXX = g++
+    LIBS = -lpthread -static
+    TARGET = reta.exe
+else
+    TARGET = reta
+endif
+
+# Verzeichnisstruktur
+SRC_DIR = .
+OBJ_DIR = obj
+BIN_DIR = bin
+
+# Quell- und Objektdateien
+SRCS = $(wildcard $(SRC_DIR)/*.cpp)
+OBJS = $(patsubst $(SRC_DIR)/%.cpp,$(OBJ_DIR)/%.o,$(SRCS))
+
+# Standardziel
+all: prepare $(BIN_DIR)/$(TARGET)
+
+# Verzeichnisse vorbereiten
+prepare:
+	@mkdir -p $(OBJ_DIR)
+	@mkdir -p $(BIN_DIR)
+	@mkdir -p csv
+
+# Hauptziel kompilieren
+$(BIN_DIR)/$(TARGET): $(OBJS)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
+
+# Objektdateien kompilieren
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# Clean target
+clean:
+	rm -rf $(OBJ_DIR) $(BIN_DIR)
+	rm -f $(TARGET) *.o *.exe
+
+# Install target (optional)
+install: all
+	@echo "Installing to /usr/local/bin..."
+	@cp $(BIN_DIR)/$(TARGET) /usr/local/bin/$(TARGET)
+	@echo "Installation complete."
+
+# Uninstall target
+uninstall:
+	@echo "Uninstalling from /usr/local/bin..."
+	@rm -f /usr/local/bin/$(TARGET)
+	@echo "Uninstall complete."
+
+# Debug build
+debug: CXXFLAGS += -g -DDEBUG -O0
+debug: clean all
+
+# Release build
+release: CXXFLAGS += -DNDEBUG -O3
+release: clean all
+
+# Test target
+test: all
+	@echo "Running tests..."
+	@$(BIN_DIR)/$(TARGET) -h
+	@echo "Test 1 passed: Help display"
+	@$(BIN_DIR)/$(TARGET) --version 2>/dev/null || true
+	@echo "Basic tests completed."
+
+# Create sample CSV files
+sample-data:
+	@echo "Creating sample CSV files..."
+	@echo "Religion;Description;Number;Type;Category" > csv/religion.csv
+	@echo "Christentum;Christliche Religion;1;Monotheistisch;Abrahamitisch" >> csv/religion.csv
+	@echo "Islam;Islamische Religion;2;Monotheistisch;Abrahamitisch" >> csv/religion.csv
+	@echo "Hinduismus;Hinduistische Religion;3;Polytheistisch;Indisch" >> csv/religion.csv
+	@echo "Buddhismus;Buddhistische Religion;4;Non-theistisch;Indisch" >> csv/religion.csv
+	@echo "Judentum;Jüdische Religion;5;Monotheistisch;Abrahamitisch" >> csv/religion.csv
+	@echo "Sample data created in csv/ directory."
+
+# Run with sample parameters
+run-sample: all sample-data
+	@echo "Running RETA with sample parameters..."
+	@$(BIN_DIR)/$(TARGET) -zeilen --alles -ausgabe --art=markdown --breite=80
+	@echo "Sample run completed."
+
+# Dependencies (generated manually for simplicity)
+$(OBJ_DIR)/main.o: main.cpp program.hpp error.hpp types.hpp utils.hpp i18n.hpp
+$(OBJ_DIR)/error.o: error.cpp error.hpp
+$(OBJ_DIR)/types.o: types.cpp types.hpp error.hpp
+$(OBJ_DIR)/utils.o: utils.cpp utils.hpp types.hpp error.hpp
+$(OBJ_DIR)/i18n.o: i18n.cpp i18n.hpp types.hpp error.hpp utils.hpp
+$(OBJ_DIR)/program.o: program.cpp program.hpp tables.hpp types.hpp error.hpp utils.hpp i18n.hpp
+$(OBJ_DIR)/tables.o: tables.cpp tables.hpp types.hpp error.hpp i18n.hpp
+
+# Phony targets
+.PHONY: all prepare clean install uninstall debug release test sample-data run-sample

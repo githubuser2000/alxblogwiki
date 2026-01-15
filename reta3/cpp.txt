@@ -1,0 +1,49 @@
+
+## 15. Beispiel-Konfigurationsdatei
+
+**.retarc (Beispielkonfiguration):**
+```ini
+# RETA Konfigurationsdatei
+# Diese Datei kann verwendet werden, um häufig verwendete Parameter zu speichern
+
+# Standard-Ausgabeformat
+default_output_format = markdown
+
+# Standard-Breite
+default_width = 80
+
+# Standard-Sprache
+default_language = de
+
+# Farbausgabe (true/false)
+color_output = true
+
+# Zeilennummerierung (true/false)
+row_numbering = true
+
+# Häufig verwendete Spalten
+common_columns = multiplikationen,gebrochenuniversum,primvielfache
+
+# Häufig verwendete Filter
+common_filters = typ=sonne,mond
+
+# CSV-Verzeichnis
+csv_directory = ./csv
+
+# Ausgabeverzeichnis
+output_directory = ./output
+
+# Logging (debug/info/warning/error)
+log_level = info
+
+# Automatische Spaltenbreitenberechnung
+auto_column_width = true
+
+# Maximale Zeilen pro Tabelle
+max_rows = 1000
+
+# Maximale Spalten pro Tabelle  
+max_columns = 50
+
+# Standard-Kombinationen
+default_combinations = galaxie=Tiere,Berufe
