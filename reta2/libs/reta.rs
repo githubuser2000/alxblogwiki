@@ -908,4 +908,750 @@ impl Program {
                                     }
                                 }
                             }
-                            "pot
+                            "potenzenvonzahlen" => {
+                                self.ob_zeilen_bereiche_angegeben = true;
+                                if neg.is_empty() {
+                                    let lines = self.tables.get_prepare().parameters_cmd_with_some_bereich(
+                                        cmd_value,
+                                        "^",
+                                        neg,
+                                        false,
+                                    );
+                                    param_lines.extend(lines);
+                                }
+                            }
+                            "vielfachevonzahlen" => {
+                                self.ob_zeilen_bereiche_angegeben = true;
+                                if neg.is_empty() {
+                                    let lines = self.tables.get_prepare().parameters_cmd_with_some_bereich(
+                                        cmd_value,
+                                        "b",
+                                        neg,
+                                        true,
+                                    );
+                                    param_lines.extend(lines);
+                                }
+                            }
+                            "primzahlvielfache" => {
+                                self.ob_zeilen_bereiche_angegeben = true;
+                                if neg.is_empty() {
+                                    let numbers = bereich_to_numbers2(cmd_value);
+                                    for zahl in numbers {
+                                        param_lines.insert(format!("{}p", zahl));
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        // Boolesche Parameter ohne Wert
+                        match cmd {
+                            "invertieren" => {
+                                self.ob_zeilen_bereiche_angegeben = true;
+                                if neg.is_empty() {
+                                    let lines = self.tables.get_prepare().parameters_cmd_with_some_bereich(
+                                        "1",
+                                        "i",
+                                        neg,
+                                        true,
+                                    );
+                                    param_lines.extend(lines);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                } else if in_ausgabe_section {
+                    // Ausgabe-Parameter
+                    if self.breite_breiten_sys_argv_para(cmd, neg) {
+                        continue;
+                    }
+                    
+                    match cmd {
+                        "keineueberschriften" => {
+                            self.tables.set_keine_ueberschriften(true);
+                        }
+                        "keinenummerierung" => {
+                            self.tables.set_nummeriere(false);
+                        }
+                        "keineleereninhalte" => {
+                            self.keine_leeren_inhalte = true;
+                            self.tables.set_keine_leeren_inhalte(true);
+                        }
+                        _ => {
+                            if let Some(eq_pos) = cmd.find('=') {
+                                let cmd_name = &cmd[..eq_pos];
+                                let cmd_value = &cmd[eq_pos + 1..];
+                                
+                                match cmd_name {
+                                    "spaltenreihenfolgeundnurdiese" => {
+                                        spaltenreihenfolge_und_nur_diese = bereich_to_numbers2(cmd_value);
+                                    }
+                                    "art" => {
+                                        let breite_ist_null = format!("--{}=0", i18n::AUSGABE_PARAS.breite);
+                                        match cmd_value {
+                                            "shell" => {
+                                                self.tables.set_out_type(SyntaxType::Default);
+                                            }
+                                            "nichts" => {
+                                                self.tables.set_out_type(SyntaxType::Nichts);
+                                            }
+                                            "csv" => {
+                                                self.tables.set_out_type(SyntaxType::Csv);
+                                                self.tables.get_out_mut().set_one_table(true);
+                                                self.breite_breiten_sys_argv_para(&breite_ist_null[2..], "");
+                                            }
+                                            "bbcode" => {
+                                                self.html_or_bbcode = true;
+                                                self.tables.set_out_type(SyntaxType::BBCode);
+                                            }
+                                            "html" => {
+                                                self.tables.set_out_type(SyntaxType::Html);
+                                                self.html_or_bbcode = true;
+                                            }
+                                            "emacs" => {
+                                                self.tables.get_out_mut().set_one_table(true);
+                                                self.tables.set_out_type(SyntaxType::Emacs);
+                                                self.breite_breiten_sys_argv_para(&breite_ist_null[2..], "");
+                                            }
+                                            "markdown" => {
+                                                self.tables.set_out_type(SyntaxType::Markdown);
+                                                self.tables.get_out_mut().set_one_table(true);
+                                                self.breite_breiten_sys_argv_para(&breite_ist_null[2..], "");
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            } else {
+                                // Boolesche Ausgabe-Parameter
+                                match cmd {
+                                    "nocolor" | "justtext" => {
+                                        if neg.is_empty() {
+                                            self.tables.get_out_mut().set_color(false);
+                                        }
+                                    }
+                                    "endlessscreen" | "endless" | "dontwrap" | "onetable" => {
+                                        if neg.is_empty() {
+                                            self.tables.get_out_mut().set_one_table(true);
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        if !self.tables.get_out().one_table() {
+            let shell_rows_amount = shell_rows_amount();
+            let text_width = self.tables.text_width();
+            self.tables.set_text_width(
+                if shell_rows_amount > text_width + 7 || shell_rows_amount <= 0 {
+                    text_width
+                } else {
+                    shell_rows_amount - 7
+                }
+            );
+        }
+        
+        self.tables.set_if_zeilen_setted(self.ob_zeilen_bereiche_angegeben);
+        
+        (
+            param_lines,
+            rows_as_numbers,
+            rows_of_combi,
+            spaltenreihenfolge_und_nur_diese,
+            puniverseprims_only,
+            gener_rows,
+        )
+    }
+    
+    fn help_page(&self) {
+        // Hilfeseite anzeigen
+        println!("{}", i18n::RETA_HILFE);
+    }
+    
+    fn bring_all_important_begin_things(
+        &mut self,
+        argv: &[String],
+    ) -> (
+        usize,
+        OrderedSet<String>,
+        OrderedSet<String>,
+        Vec<Vec<String>>,
+        OrderedSet<i32>,
+        Vec<Vec<String>>,
+        OrderedSet<i32>,
+        Vec<Vec<i32>>,
+        (OrderedDict<i32, i32>, OrderedDict<i32, i32>),
+        Vec<i32>,
+        OrderedDict<i32, Vec<String>>,
+        HashMap<String, OrderedDict<i32, Vec<String>>>,
+        Vec<Vec<String>>,
+        Vec<Vec<i32>>,
+        (OrderedDict<i32, i32>, OrderedDict<i32, i32>),
+    ) {
+        // Lese CSV-Datei
+        let csv_path = PathBuf::from("csv").join(CsvFileNames::religion.filename());
+        let mut relitable = Vec::new();
+        
+        if let Ok(file) = File::open(&csv_path) {
+            let reader = BufReader::new(file);
+            
+            for (i, line) in reader.lines().enumerate() {
+                if let Ok(line) = line {
+                    let columns: Vec<String> = line.split(';')
+                        .map(|s| s.trim().to_string())
+                        .collect();
+                    
+                    // Verarbeite JSON-in-CSV falls nötig
+                    let processed_columns: Vec<String> = columns.iter()
+                        .map(|col| {
+                            if col.starts_with("|{") && col.ends_with("}|") {
+                                if let Ok(json_val) = serde_json::from_str::<Value>(&col[1..col.len()-1]) {
+                                    if self.html_or_bbcode {
+                                        if self.tables.out_type() == SyntaxType::BBCode {
+                                            json_val.get("bbcode")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or(col)
+                                                .to_string()
+                                        } else if self.tables.out_type() == SyntaxType::Html {
+                                            html_escape(json_val.get("html")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or(col))
+                                        } else {
+                                            json_val.get("")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or(col)
+                                                .to_string()
+                                        }
+                                    } else {
+                                        json_val.get("")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or(col)
+                                            .to_string()
+                                    }
+                                } else {
+                                    col.clone()
+                                }
+                            } else {
+                                col.clone()
+                            }
+                        })
+                        .collect();
+                    
+                    relitable.push(processed_columns);
+                    
+                    if i == 0 {
+                        self.rows_len = relitable[0].len();
+                    }
+                }
+            }
+        }
+        
+        // Fülle mit leeren Zeilen auf
+        let target_height = self.tables.hoechste_zeile().0 as usize + 2;
+        let row_width = if !relitable.is_empty() { relitable[0].len() } else { 0 };
+        
+        while relitable.len() < target_height {
+            relitable.push(vec!["".to_string(); row_width]);
+        }
+        
+        self.relitable = relitable.clone();
+        
+        // Initialisiere Flags
+        self.html_or_bbcode = false;
+        self.breite_or_breiten = false;
+        self.keine_leeren_inhalte = false;
+        self.tables.set_keine_leeren_inhalte(false);
+        
+        // Verarbeite Parameter
+        let (param_lines, rows_as_numbers, rows_of_combi, spaltenreihenfolge_und_nur_diese, puniverseprims, gener_rows) =
+            self.parameters_to_commands_and_numbers(argv, "");
+        
+        let (param_lines_not, rows_as_numbers_not, rows_of_combi_not, _, puniverseprims_not, gener_rows_not) =
+            self.parameters_to_commands_and_numbers(argv, "-");
+        
+        // Initialisiere Datenstrukturen
+        self.data_dict = vec![OrderedDict::new(); 14];
+        
+        // Store parameters
+        self.store_parameters_for_columns();
+        
+        // Produce spalten numbers
+        self.produce_all_spalten_numbers("");
+        
+        // Setze HTML/BBcode-Breite
+        if self.html_or_bbcode && !self.breite_or_breiten {
+            set_shell_rows_amount(0);
+            self.tables.set_text_width(0);
+        }
+        
+        // Entferne Dopplungen
+        let (param_lines, param_lines_not) = self.tables.get_prepare().delete_doubles_in_sets(
+            param_lines,
+            param_lines_not,
+        );
+        
+        // Setze Spalten-Mengen
+        self.rows_as_numbers = self.spalten_arten_key_spaltennummern_value[&self.spalten_type_naming.ordinary].clone();
+        self.gener_rows = self.spalten_arten_key_spaltennummern_value[&self.spalten_type_naming.generated1].clone();
+        self.puniverseprims = self.spalten_arten_key_spaltennummern_value[&self.spalten_type_naming.concat1].clone();
+        self.rows_of_combi = self.spalten_arten_key_spaltennummern_value[&self.spalten_type_naming.kombi1].clone();
+        self.rows_of_combi2 = self.spalten_arten_key_spaltennummern_value[&self.spalten_type_naming.kombi2].clone();
+        
+        // Setze weitere Tabellen-Strukturen
+        self.tables.set_gener_rows(self.gener_rows.clone());
+        self.tables.get_prepare_mut().set_rows_as_numbers(self.rows_as_numbers.clone());
+        self.tables.get_out_mut().set_rows_as_numbers(self.rows_as_numbers.clone());
+        
+        self.spalten_vanilla_amount = self.rows_as_numbers.len() as i32;
+        
+        // Lese Konkatenations-CSV-Dateien
+        let mut csv_theirs_spalten: HashMap<i32, OrderedDict<i32, Vec<String>>> = HashMap::new();
+        
+        let inputs = vec![
+            (self.puniverseprims.clone(), 1),
+            (self.spalten_arten_key_spaltennummern_value[&self.spalten_type_naming.gebr_gal1].clone(), 2),
+            (self.spalten_arten_key_spaltennummern_value[&self.spalten_type_naming.gebr_gal1].clone(), 3),
+            (self.spalten_arten_key_spaltennummern_value[&self.spalten_type_naming.gebro_uni1].clone(), 4),
+            (self.spalten_arten_key_spaltennummern_value[&self.spalten_type_naming.gebro_uni1].clone(), 5),
+            (self.spalten_arten_key_spaltennummern_value[&self.spalten_type_naming.gebr_emo1].clone(), 6),
+            (self.spalten_arten_key_spaltennummern_value[&self.spalten_type_naming.gebr_emo1].clone(), 7),
+            (self.spalten_arten_key_spaltennummern_value[&self.spalten_type_naming.gebr_groe1].clone(), 8),
+            (self.spalten_arten_key_spaltennummern_value[&self.spalten_type_naming.gebr_groe1].clone(), 9),
+        ];
+        
+        for (input, i) in inputs {
+            let (new_relitable, new_rows_as_numbers, csv_spalten) = 
+                self.tables.get_concat().read_concat_csv(
+                    &self.relitable,
+                    &self.rows_as_numbers,
+                    &input,
+                    i,
+                );
+            
+            self.relitable = new_relitable;
+            self.rows_as_numbers = new_rows_as_numbers;
+            csv_theirs_spalten.insert(i, csv_spalten);
+        }
+        
+        let prim_spalten = csv_theirs_spalten.get(&1).cloned().unwrap_or_default();
+        
+        let mut gebr = HashMap::new();
+        gebr.insert("Gal".to_string(), csv_theirs_spalten.get(&2).cloned().unwrap_or_default());
+        gebr.insert("Gal2".to_string(), csv_theirs_spalten.get(&3).cloned().unwrap_or_default());
+        gebr.insert("Uni".to_string(), csv_theirs_spalten.get(&4).cloned().unwrap_or_default());
+        gebr.insert("Uni2".to_string(), csv_theirs_spalten.get(&5).cloned().unwrap_or_default());
+        gebr.insert("Emo".to_string(), csv_theirs_spalten.get(&6).cloned().unwrap_or_default());
+        gebr.insert("Emo2".to_string(), csv_theirs_spalten.get(&7).cloned().unwrap_or_default());
+        gebr.insert("Groe".to_string(), csv_theirs_spalten.get(&8).cloned().unwrap_or_default());
+        gebr.insert("Groe2".to_string(), csv_theirs_spalten.get(&9).cloned().unwrap_or_default());
+        
+        // Vorbereitung für Ausgabe
+        let (finally_display_lines_early, headings_amount_early, newer_table_early, numlen_early, rows_range_early) =
+            self.tables.get_prepare().prepare4out_before_for_loop_spalten_zeilen_bestimmen(
+                &self.relitable,
+                &param_lines,
+                &param_lines_not,
+            );
+        
+        // Setze letzte Zeilennummer
+        if let Some(&last_line) = finally_display_lines_early.iter().max() {
+            self.last_line_number = last_line;
+        }
+        
+        // Führe Konkatenationen durch
+        self.relitable = self.tables.get_concat().concat_vervielfache_zeile(
+            self.relitable.clone(),
+            self.rows_as_numbers.clone(),
+        ).0;
+        
+        self.relitable = self.tables.get_concat().concat_modallogik(
+            self.relitable.clone(),
+            self.gener_rows.clone(),
+            self.rows_as_numbers.clone(),
+        ).0;
+        
+        self.relitable = self.tables.get_concat().concat_prim_creativity_type(
+            self.relitable.clone(),
+            self.rows_as_numbers.clone(),
+        ).0;
+        
+        self.relitable = self.tables.get_concat().concat_gleichheit_freiheit_dominieren(
+            self.relitable.clone(),
+            self.rows_as_numbers.clone(),
+        ).0;
+        
+        self.relitable = self.tables.get_concat().concat_geist_emotion_energie_materie_topologie(
+            self.relitable.clone(),
+            self.rows_as_numbers.clone(),
+        ).0;
+        
+        self.relitable = self.tables.get_concat().concat_mond_exponzieren_logarithmus_typ(
+            self.relitable.clone(),
+            self.rows_as_numbers.clone(),
+        ).0;
+        
+        // Lese Kombi-CSV-Dateien
+        let animals_professions_table;
+        let kombi_table_kombis;
+        let maintable2subtable_relation;
+        
+        if !self.rows_of_combi.is_empty() {
+            (animals_professions_table, self.relitable, kombi_table_kombis, maintable2subtable_relation) =
+                self.tables.get_combis().read_kombi_csv(
+                    &self.relitable,
+                    &self.rows_as_numbers,
+                    &self.rows_of_combi,
+                    &CsvFileNames::kombi13,
+                );
+        } else {
+            animals_professions_table = Vec::new();
+            kombi_table_kombis = Vec::new();
+            maintable2subtable_relation = (OrderedDict::new(), OrderedDict::new());
+        }
+        
+        let animals_professions_table2;
+        let kombi_table_kombis2;
+        let maintable2subtable_relation2;
+        
+        if !self.rows_of_combi2.is_empty() {
+            (animals_professions_table2, self.relitable, kombi_table_kombis2, maintable2subtable_relation2) =
+                self.tables.get_combis().read_kombi_csv(
+                    &self.relitable,
+                    &self.rows_as_numbers,
+                    &self.rows_of_combi2,
+                    &CsvFileNames::kombi15,
+                );
+        } else {
+            animals_professions_table2 = Vec::new();
+            kombi_table_kombis2 = Vec::new();
+            maintable2subtable_relation2 = (OrderedDict::new(), OrderedDict::new());
+        }
+        
+        (
+            self.rows_len,
+            param_lines,
+            param_lines_not,
+            self.relitable.clone(),
+            self.rows_as_numbers.clone(),
+            animals_professions_table,
+            self.rows_of_combi.clone(),
+            kombi_table_kombis,
+            maintable2subtable_relation,
+            spaltenreihenfolge_und_nur_diese,
+            prim_spalten,
+            gebr,
+            animals_professions_table2,
+            kombi_table_kombis2,
+            maintable2subtable_relation2,
+        )
+    }
+    
+    fn oberes_maximum_arg(&self, arg: &str) -> (Vec<i32>, bool) {
+        let mut werte = Vec::new();
+        
+        let oberesmaximum_str = format!("{}=", i18n::ZEILEN_PARAS.oberesmaximum);
+        let vorhervonausschnitt_str = format!("{}=", i18n::ZEILEN_PARAS.vorhervonausschnitt);
+        
+        if arg.starts_with(&oberesmaximum_str) {
+            let value_str = &arg[oberesmaximum_str.len()..];
+            if let Ok(value) = value_str.parse::<i32>() {
+                werte.push(value);
+                return (werte, true);
+            }
+        } else if arg.starts_with(&vorhervonausschnitt_str) {
+            let value_str = &arg[vorhervonausschnitt_str.len()..];
+            let werte_list = bereich_to_numbers2(value_str, false, 0)
+                .iter()
+                .map(|&a| a + 1)
+                .collect::<Vec<i32>>();
+            werte = werte_list.iter().map(|&w| w.max(1024)).collect();
+            return (werte, false);
+        }
+        
+        (werte, false)
+    }
+    
+    fn oberes_maximum2(&self, argv2: &[String]) -> Option<i32> {
+        let mut werte = vec![self.tables.hoechste_zeile().0];
+        
+        for arg in argv2 {
+            let (new_werte, _) = self.oberes_maximum_arg(arg);
+            werte.extend(new_werte);
+        }
+        
+        if werte.is_empty() {
+            None
+        } else {
+            Some(*werte.iter().max().unwrap())
+        }
+    }
+    
+    fn oberes_maximum(&mut self, arg: &str) -> bool {
+        let (liste, wahrheitswert) = self.oberes_maximum_arg(arg);
+        if liste.is_empty() || !wahrheitswert {
+            return false;
+        }
+        let max_ = *liste.iter().chain(&[self.tables.hoechste_zeile().0]).max().unwrap();
+        self.tables.set_hoechste_zeile((max_, max_));
+        true
+    }
+}
+
+// Hilfsfunktionen
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+fn bereich_to_numbers2(s: &str, include_end: bool, default: i32) -> Vec<i32> {
+    let mut result = Vec::new();
+    
+    for part in s.split(',') {
+        let part = part.trim();
+        if part.contains('-') {
+            let parts: Vec<&str> = part.split('-').collect();
+            if parts.len() == 2 {
+                if let (Ok(start), Ok(end)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>()) {
+                    if include_end {
+                        for i in start..=end {
+                            result.push(i);
+                        }
+                    } else {
+                        for i in start..end {
+                            result.push(i);
+                        }
+                    }
+                }
+            }
+        } else if let Ok(num) = part.parse::<i32>() {
+            result.push(num);
+        }
+    }
+    
+    if result.is_empty() {
+        vec![default]
+    } else {
+        result
+    }
+}
+
+// i18n-Modul (vereinfacht)
+mod i18n {
+    use lazy_static::lazy_static;
+    use std::collections::HashMap;
+    use serde_json::Value;
+    
+    pub struct CsvFileNames;
+    impl CsvFileNames {
+        pub const religion: &'static str = "religion.csv";
+        pub const kombi13: &'static str = "kombi13.csv";
+        pub const kombi15: &'static str = "kombi15.csv";
+        
+        pub fn filename(&self) -> &'static str {
+            match self {
+                CsvFileNames::religion => "religion.csv",
+                CsvFileNames::kombi13 => "kombi13.csv",
+                CsvFileNames::kombi15 => "kombi15.csv",
+            }
+        }
+    }
+    
+    pub struct ParametersMain {
+        pub multiplikationen: [String; 1],
+        pub gebrochenuniversum: [String; 2],
+        pub gebrochengalaxie: [String; 2],
+        pub gebrochenemotion: [String; 2],
+        pub gebrochengroesse: [String; 2],
+        pub primvielfache: Vec<String>,
+        pub alles: String,
+    }
+    
+    lazy_static! {
+        pub static ref I18N: I18n = I18n::new();
+        pub static ref PARAMETERS_MAIN: ParametersMain = ParametersMain {
+            multiplikationen: ["multiplikationen".to_string()],
+            gebrochenuniversum: ["gebrochenuniversum".to_string(), "gebrochenuniversum".to_string()],
+            gebrochengalaxie: ["gebrochengalaxie".to_string(), "gebrochengalaxie".to_string()],
+            gebrochenemotion: ["gebrochenemotion".to_string(), "gebrochenemotion".to_string()],
+            gebrochengroesse: ["gebrochengroesse".to_string(), "gebrochengroesse".to_string()],
+            primvielfache: vec!["primvielfache".to_string()],
+            alles: "alles".to_string(),
+        };
+        
+        pub static ref RETA: RetaStrings = RetaStrings::new();
+        pub static ref ZEILEN_PARAS: ZeilenParas = ZeilenParas::new();
+        pub static ref AUSGABE_PARAS: AusgabeParas = AusgabeParas::new();
+        pub static ref KOMBI_MAIN_PARAS: KombiMainParas = KombiMainParas::new();
+        pub static ref KOMBI_PARA_N_DATA_MATRIX: HashMap<i32, Value> = HashMap::new();
+        pub static ref KOMBI_PARA_N_DATA_MATRIX2: HashMap<i32, Value> = HashMap::new();
+    }
+    
+    pub const GEBROCHEN_SPALTEN_MAXIMUM_PLUS_1: i32 = 100;
+    pub const RETA_HILFE: &str = "Hilfetext für RETA";
+    
+    pub fn get_para_n_data_matrix() -> Vec<(Vec<String>, Vec<String>, Vec<Vec<i32>>)> {
+        vec![
+            (
+                vec!["multiplikationen".to_string()],
+                vec![],
+                vec![vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![]],
+            ),
+            // Weitere Einträge hier hinzufügen
+        ]
+    }
+    
+    pub struct I18n {
+        pub sprachen_wahl: String,
+        pub sprachen: HashMap<String, String>,
+    }
+    
+    impl I18n {
+        pub fn new() -> Self {
+            let mut sprachen = HashMap::new();
+            sprachen.insert("de".to_string(), "de".to_string());
+            sprachen.insert("en".to_string(), "en".to_string());
+            
+            Self {
+                sprachen_wahl: "de".to_string(),
+                sprachen,
+            }
+        }
+    }
+    
+    pub struct RetaStrings {
+        pub keine_num_wort: String,
+        pub cliout_saetze: [String; 10],
+    }
+    
+    impl RetaStrings {
+        pub fn new() -> Self {
+            Self {
+                keine_num_wort: "keinenummerierung".to_string(),
+                cliout_saetze: [
+                    "Fehler: ".to_string(),
+                    " ist kein gültiger Parameter für ".to_string(),
+                    "Mögliche Parameter: ".to_string(),
+                    // Weitere Strings hier hinzufügen
+                ].map(|s| s.to_string()),
+            }
+        }
+    }
+    
+    pub struct ZeilenParas {
+        pub alles: String,
+        pub heute: String,
+        pub gestern: String,
+        pub morgen: String,
+        pub oberesmaximum: String,
+        pub vorhervonausschnitt: String,
+        pub sonne: String,
+        pub schwarzesonne: String,
+        pub planet: String,
+        pub mond: String,
+        pub aussenerste: String,
+        pub innenerste: String,
+        pub aussenalle: String,
+        pub innenalle: String,
+        pub invertieren: String,
+    }
+    
+    impl ZeilenParas {
+        pub fn new() -> Self {
+            Self {
+                alles: "alles".to_string(),
+                heute: "heute".to_string(),
+                gestern: "gestern".to_string(),
+                morgen: "morgen".to_string(),
+                oberesmaximum: "oberesmaximum".to_string(),
+                vorhervonausschnitt: "vorhervonausschnitt".to_string(),
+                sonne: "sonne".to_string(),
+                schwarzesonne: "schwarzesonne".to_string(),
+                planet: "planet".to_string(),
+                mond: "mond".to_string(),
+                aussenerste: "aussenerste".to_string(),
+                innenerste: "innenerste".to_string(),
+                aussenalle: "aussenalle".to_string(),
+                innenalle: "innenalle".to_string(),
+                invertieren: "invertieren".to_string(),
+            }
+        }
+    }
+    
+    pub struct AusgabeParas {
+        pub breite: String,
+        pub breiten: String,
+        pub keineueberschriften: String,
+        pub keinenummerierung: String,
+        pub keineleereninhalte: String,
+        pub spaltenreihenfolgeundnurdiese: String,
+        pub art: String,
+        pub nocolor: String,
+        pub justtext: String,
+        pub endlessscreen: String,
+        pub endless: String,
+        pub dontwrap: String,
+        pub onetable: String,
+    }
+    
+    impl AusgabeParas {
+        pub fn new() -> Self {
+            Self {
+                breite: "breite".to_string(),
+                breiten: "breiten".to_string(),
+                keineueberschriften: "keineueberschriften".to_string(),
+                keinenummerierung: "keinenummerierung".to_string(),
+                keineleereninhalte: "keineleereninhalte".to_string(),
+                spaltenreihenfolgeundnurdiese: "spaltenreihenfolgeundnurdiese".to_string(),
+                art: "art".to_string(),
+                nocolor: "nocolor".to_string(),
+                justtext: "justtext".to_string(),
+                endlessscreen: "endlessscreen".to_string(),
+                endless: "endless".to_string(),
+                dontwrap: "dontwrap".to_string(),
+                onetable: "onetable".to_string(),
+            }
+        }
+    }
+    
+    pub struct KombiMainParas {
+        pub galaxie: String,
+        pub universum: String,
+    }
+    
+    impl KombiMainParas {
+        pub fn new() -> Self {
+            Self {
+                galaxie: "galaxie".to_string(),
+                universum: "universum".to_string(),
+            }
+        }
+    }
+}
+
+// Hauptfunktion
+fn main() {
+    let args: Vec<String> = env::args().collect();
+    
+    if args.len() < 2 {
+        println!("Verwendung: reta [OPTIONEN]");
+        println!("Für Hilfe: reta -h oder reta --help");
+        return;
+    }
+    
+    let mut program = Program::new(args, None, true);
+    
+    // Gib die resultierende Tabelle aus
+    for line in program.resulting_table() {
+        println!("{}", line);
+    }
+}
