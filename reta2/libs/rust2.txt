@@ -1,0 +1,11 @@
+# Kompiliere das Programm
+cargo build --release
+
+# Führe es aus
+./target/release/reta -h
+
+# Beispiel mit Parametern
+./target/release/reta -zeilen --alles -ausgabe --art=markdown
+
+# Mit Datei-Ausgabe
+./target/release/reta -spalten --multiplikationen=2,3,5 > output.txt
